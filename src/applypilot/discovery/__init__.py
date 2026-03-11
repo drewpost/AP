@@ -1,10 +1,11 @@
 """Shared location filtering for all discovery modules."""
 
+import re
+
 # Countries, regions, US states, and cities that indicate a remote job
 # is NOT available in the UK.
 DEFAULT_REMOTE_REJECT = [
-    "usa", "united states", "u.s.", "us,", "us-", "us ", "(us)",
-    "america", "american",
+    "usa", "united states", "u.s.", "america", "american",
     "canada", "canadian",
     "brazil", "brasil",
     "mexico", "méxico",
@@ -62,6 +63,10 @@ def location_ok(location: str | None, accept: list[str], reject: list[str],
     is_remote = any(r in loc for r in ("remote", "anywhere", "work from home", "wfh", "distributed"))
 
     if is_remote:
+        # Check for bare "US" / "UK-only exclusion" with word boundaries
+        # so we don't false-positive on "focus", "campus", etc.
+        if re.search(r'\bUS\b', location):  # case-sensitive: "US" but not "us" in "focus"
+            return False
         reject_patterns = remote_reject if remote_reject else DEFAULT_REMOTE_REJECT
         for pattern in reject_patterns:
             if pattern.lower() in loc:
