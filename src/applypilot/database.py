@@ -394,6 +394,69 @@ def get_stats(conn: sqlite3.Connection | None = None) -> dict:
     return stats
 
 
+# ---------------------------------------------------------------------------
+# Lightweight location classifier (no LLM needed)
+# ---------------------------------------------------------------------------
+
+_COUNTRY_PATTERNS: list[tuple[str, str]] = [
+    ("united kingdom", "GB"), ("uk", "GB"), ("england", "GB"), ("london", "GB"),
+    ("surrey", "GB"), ("scotland", "GB"), ("wales", "GB"), ("manchester", "GB"),
+    ("birmingham", "GB"), ("edinburgh", "GB"), ("bristol", "GB"), ("cambridge", "GB"),
+    ("oxford", "GB"), ("leeds", "GB"), ("glasgow", "GB"), ("belfast", "GB"),
+    ("ireland", "IE"), ("dublin", "IE"),
+    ("germany", "DE"), ("berlin", "DE"), ("munich", "DE"), ("frankfurt", "DE"),
+    ("france", "FR"), ("paris", "FR"),
+    ("netherlands", "NL"), ("amsterdam", "NL"),
+    ("spain", "ES"), ("madrid", "ES"), ("barcelona", "ES"),
+    ("italy", "IT"), ("milan", "IT"),
+    ("sweden", "SE"), ("stockholm", "SE"),
+    ("switzerland", "CH"), ("zurich", "CH"),
+    ("portugal", "PT"), ("lisbon", "PT"),
+    ("poland", "PL"), ("warsaw", "PL"), ("krakow", "PL"),
+    ("israel", "IL"), ("tel aviv", "IL"),
+    ("india", "IN"), ("bangalore", "IN"), ("mumbai", "IN"), ("hyderabad", "IN"),
+    ("canada", "CA"), ("toronto", "CA"), ("vancouver", "CA"), ("montreal", "CA"),
+    ("australia", "AU"), ("sydney", "AU"), ("melbourne", "AU"),
+    ("singapore", "SG"),
+    ("japan", "JP"), ("tokyo", "JP"),
+    ("usa", "US"), ("united states", "US"), ("new york", "US"), ("san francisco", "US"),
+    ("california", "US"), ("seattle", "US"), ("austin", "US"), ("boston", "US"),
+    ("chicago", "US"), ("denver", "US"), ("atlanta", "US"), ("virginia", "US"),
+    (" us", "US"), ("us,", "US"), ("us -", "US"),
+]
+
+
+def _classify_location(location: str | None) -> tuple[str | None, str | None]:
+    """Infer (remote_type, country_code) from raw location text.
+
+    Returns (remote_type, country_code) where either may be None.
+    """
+    if not location:
+        return None, None
+
+    loc = location.lower().strip()
+
+    # Detect remote
+    is_remote = "remote" in loc or "anywhere" in loc or "work from home" in loc
+    remote_type = "remote" if is_remote else None
+
+    # Detect country
+    country_code = None
+    for pattern, code in _COUNTRY_PATTERNS:
+        if pattern in loc:
+            country_code = code
+            break
+
+    # "Remote" with no country hint — leave country as None
+    # "Hybrid" detection
+    if "hybrid" in loc:
+        remote_type = "hybrid"
+    elif not is_remote and country_code:
+        remote_type = "onsite"
+
+    return remote_type, country_code
+
+
 def store_jobs(conn: sqlite3.Connection, jobs: list[dict],
                site: str, strategy: str) -> tuple[int, int]:
     """Store discovered jobs, skipping duplicates by URL.
@@ -415,14 +478,16 @@ def store_jobs(conn: sqlite3.Connection, jobs: list[dict],
         url = job.get("url")
         if not url:
             continue
+        # Classify location at discovery time so filters work immediately
+        remote_type, country_code = _classify_location(job.get("location"))
         try:
             conn.execute(
                 "INSERT INTO jobs (url, title, salary, description, location, site, strategy, "
-                "discovered_at, first_seen_at, company_tag) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "discovered_at, first_seen_at, company_tag, remote_type, country_code) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (url, job.get("title"), job.get("salary"), job.get("description"),
                  job.get("location"), site, strategy, now, now,
-                 job.get("company_tag")),
+                 job.get("company_tag"), remote_type, country_code),
             )
             new += 1
         except sqlite3.IntegrityError:
