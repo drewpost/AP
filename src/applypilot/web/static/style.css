@@ -385,6 +385,26 @@ main {
 .pipeline-done { background: #064e3b; color: #6ee7b7; }
 .pipeline-failed { background: #7f1d1d; color: #fca5a5; }
 
+/* Triage action buttons on cards */
+.triage-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+.btn-shortlist {
+  background: #064e3b;
+  border-color: #065f46;
+  color: #6ee7b7;
+}
+.btn-shortlist:hover { background: #065f46; }
+
+/* Bulk bar separator */
+.bulk-sep {
+  width: 1px;
+  height: 1.2rem;
+  background: #334155;
+}
+
 .apply-link {
   font-size: 0.75rem;
   color: #60a5fa;

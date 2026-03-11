@@ -21,9 +21,20 @@ function getFilters() {
   if (el('filter-site')) f.site = el('filter-site').value || undefined;
   if (el('filter-country')) f.country_code = el('filter-country').value || undefined;
   if (el('filter-company-tag')) f.company_tag = el('filter-company-tag').value || undefined;
-  if (el('filter-user-status')) f.user_status = el('filter-user-status').value || undefined;
-  if (el('filter-hide-dismissed')) f.hide_dismissed = el('filter-hide-dismissed').value || '1';
   if (el('filter-search')) f.search = el('filter-search').value || undefined;
+
+  // Pool filter: triage (default) shows only new/reviewing, dismissed shows dismissed, all shows everything
+  const pool = el('filter-pool') ? el('filter-pool').value : 'triage';
+  if (pool === 'triage') {
+    f.triage_pool = '1';
+    f.hide_dismissed = '0';
+  } else if (pool === 'dismissed') {
+    f.user_status = 'dismissed';
+    f.hide_dismissed = '0';
+  } else {
+    f.hide_dismissed = '0';
+  }
+
   f.page = currentPage;
   f.per_page = 50;
   return f;
@@ -115,8 +126,10 @@ function renderJobCard(j) {
       <div class="card-brief">${esc(brief)}</div>
       <div class="card-footer">
         ${pipelineBadge}
-        ${j.application_url ? `<a href="${esc(j.application_url)}" class="apply-link" target="_blank" onclick="event.stopPropagation()">Apply</a>` : ''}
-        <button class="btn-dismiss" onclick="dismissJob(event, '${esc(j.url)}')" title="Not suitable — hide this job">Not suitable</button>
+        <div class="triage-actions">
+          <button class="btn btn-sm btn-shortlist" onclick="shortlistOne(event, '${esc(j.url)}')">Shortlist</button>
+          <button class="btn btn-sm btn-dismiss" onclick="dismissJob(event, '${esc(j.url)}')">Dismiss</button>
+        </div>
       </div>
     </div>`;
 }
@@ -183,20 +196,14 @@ function updateSelectionCount() {
 
 async function dismissJob(event, url) {
   event.stopPropagation();
-  const card = event.target.closest('.job-card');
-
   await fetch('/api/jobs/status', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({urls: [url], status: 'dismissed'}),
   });
-
-  if (card) {
-    card.style.transition = 'opacity 0.3s, transform 0.3s';
-    card.style.opacity = '0';
-    card.style.transform = 'scale(0.95)';
-    setTimeout(() => card.remove(), 300);
-  }
+  _animateOut(event.target.closest('.job-card'));
+  selectedUrls.delete(url);
+  updateSelectionCount();
 }
 
 async function bulkDismissLowScore() {
@@ -245,15 +252,47 @@ async function dismissSelected() {
     body: JSON.stringify({urls, status: 'dismissed'}),
   });
 
-  // Animate out and clear selection
   urls.forEach(url => {
     const card = document.querySelector(`.job-card[data-url="${CSS.escape(url)}"]`);
-    if (card) {
-      card.style.transition = 'opacity 0.3s, transform 0.3s';
-      card.style.opacity = '0';
-      card.style.transform = 'scale(0.95)';
-      setTimeout(() => card.remove(), 300);
-    }
+    _animateOut(card);
+    selectedUrls.delete(url);
+  });
+  updateSelectionCount();
+}
+
+function _animateOut(card) {
+  if (!card) return;
+  card.style.transition = 'opacity 0.3s, transform 0.3s';
+  card.style.opacity = '0';
+  card.style.transform = 'scale(0.95)';
+  setTimeout(() => card.remove(), 300);
+}
+
+async function shortlistOne(event, url) {
+  event.stopPropagation();
+  await fetch('/api/jobs/status', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({urls: [url], status: 'shortlisted'}),
+  });
+  _animateOut(event.target.closest('.job-card'));
+  selectedUrls.delete(url);
+  updateSelectionCount();
+}
+
+async function shortlistSelected() {
+  if (selectedUrls.size === 0) return;
+  const urls = Array.from(selectedUrls);
+
+  await fetch('/api/jobs/status', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({urls, status: 'shortlisted'}),
+  });
+
+  urls.forEach(url => {
+    const card = document.querySelector(`.job-card[data-url="${CSS.escape(url)}"]`);
+    _animateOut(card);
     selectedUrls.delete(url);
   });
   updateSelectionCount();

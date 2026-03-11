@@ -95,12 +95,15 @@ def list_jobs():
     user_status = request.args.get("user_status")
     company_tag = request.args.get("company_tag")
     hide_dismissed = request.args.get("hide_dismissed", "1")
+    triage_pool = request.args.get("triage_pool", "0")
 
     conditions = ["1=1"]
     params: list = []
 
-    # Hide dismissed by default
-    if hide_dismissed == "1":
+    # Triage pool: only untriaged jobs (new/reviewing)
+    if triage_pool == "1":
+        conditions.append("COALESCE(user_status, 'new') IN ('new', 'reviewing')")
+    elif hide_dismissed == "1":
         conditions.append("COALESCE(user_status, 'new') != 'dismissed'")
 
     if min_score is not None:

@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}ApplyPilot — Job Browser{% endblock %}
+{% block title %}ApplyPilot — Triage{% endblock %}
 
 {% block content %}
 <!-- Summary cards -->
 <div class="summary">
   <div class="stat-card stat-new">
     <div class="stat-num" id="stat-unseen">{{ stats.get('unseen', 0) }}</div>
-    <div class="stat-label">New (Unseen)</div>
+    <div class="stat-label">To Triage</div>
   </div>
   <div class="stat-card">
     <div class="stat-num" id="stat-total">{{ stats.total }}</div>
@@ -76,22 +76,11 @@
   </div>
 
   <div class="filter-group">
-    <label>Status</label>
-    <select id="filter-user-status" onchange="loadJobs()">
-      <option value="">All</option>
-      <option value="new">New</option>
-      <option value="reviewing">Reviewing</option>
-      <option value="shortlisted">Shortlisted</option>
-      <option value="applied">Applied</option>
+    <label>Pool</label>
+    <select id="filter-pool" onchange="loadJobs()">
+      <option value="triage" selected>Triage Queue</option>
+      <option value="all">All Jobs</option>
       <option value="dismissed">Dismissed</option>
-    </select>
-  </div>
-
-  <div class="filter-group">
-    <label>Dismissed</label>
-    <select id="filter-hide-dismissed" onchange="loadJobs()">
-      <option value="1" selected>Hidden</option>
-      <option value="0">Show All</option>
     </select>
   </div>
 
@@ -104,11 +93,12 @@
 <!-- Bulk action bar -->
 <div class="bulk-bar" id="bulk-bar">
   <span id="selection-count">0 selected</span>
-  <button class="btn btn-primary" onclick="processSelected()">Process Selected</button>
-  <button class="btn btn-sm" onclick="selectAllVisible()">Select All Visible</button>
-  <button class="btn btn-sm" onclick="deselectAll()">Deselect All</button>
-  <button class="btn btn-sm btn-dismiss" onclick="dismissSelected()">Not Suitable</button>
-  <button class="btn btn-sm btn-dismiss" onclick="bulkDismissLowScore()">Dismiss Low Score</button>
+  <button class="btn btn-sm btn-shortlist" onclick="shortlistSelected()">Shortlist</button>
+  <button class="btn btn-sm btn-dismiss" onclick="dismissSelected()">Dismiss</button>
+  <span class="bulk-sep"></span>
+  <button class="btn btn-sm" onclick="selectAllVisible()">Select All</button>
+  <button class="btn btn-sm" onclick="deselectAll()">Deselect</button>
+  <button class="btn btn-sm btn-dismiss" onclick="bulkDismissLowScore()">Dismiss Below Score</button>
 </div>
 
 <!-- Job grid -->
