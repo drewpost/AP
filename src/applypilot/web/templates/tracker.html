@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}ApplyPilot — Tracker{% endblock %}
+
+{% block content %}
+<div class="kanban-board" id="kanban-board">
+  <div class="kanban-col" data-status="shortlisted">
+    <div class="kanban-col-header">
+      <h3>Shortlisted</h3>
+      <span class="kanban-count" id="count-shortlisted">0</span>
+    </div>
+    <div class="kanban-cards" id="col-shortlisted"></div>
+  </div>
+  <div class="kanban-col" data-status="applied">
+    <div class="kanban-col-header">
+      <h3>Applied</h3>
+      <span class="kanban-count" id="count-applied">0</span>
+    </div>
+    <div class="kanban-cards" id="col-applied"></div>
+  </div>
+  <div class="kanban-col" data-status="interviewing">
+    <div class="kanban-col-header">
+      <h3>Interviewing</h3>
+      <span class="kanban-count" id="count-interviewing">0</span>
+    </div>
+    <div class="kanban-cards" id="col-interviewing"></div>
+  </div>
+  <div class="kanban-col" data-status="offered">
+    <div class="kanban-col-header">
+      <h3>Offered</h3>
+      <span class="kanban-count" id="count-offered">0</span>
+    </div>
+    <div class="kanban-cards" id="col-offered"></div>
+  </div>
+  <div class="kanban-col" data-status="rejected">
+    <div class="kanban-col-header">
+      <h3>Rejected</h3>
+      <span class="kanban-count" id="count-rejected">0</span>
+    </div>
+    <div class="kanban-cards" id="col-rejected"></div>
+  </div>
+</div>
+
+<!-- Reuse the same job detail modal -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="job-modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  loadTracker();
+  connectSSE();
+});
+</script>
+{% endblock %}

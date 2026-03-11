@@ -303,6 +303,157 @@ def status() -> None:
 
 
 @app.command()
+def lookup(
+    query: str = typer.Argument(..., help="Search term: company name, job title, or keyword."),
+    show: Optional[int] = typer.Option(None, "--show", "-s", help="Show full resume and cover letter for match number N."),
+    limit: int = typer.Option(20, "--limit", "-l", help="Max results to display."),
+) -> None:
+    """Search your applications by company, title, or keyword.
+
+    Quick reference when a recruiter calls or emails — see what you sent them.
+
+    Examples:
+        applypilot lookup nvidia
+        applypilot lookup "backend engineer"
+        applypilot lookup nvidia --show 1
+    """
+    _bootstrap()
+
+    from pathlib import Path
+    from applypilot.database import search_jobs
+    from rich.panel import Panel
+    from rich.text import Text
+
+    results = search_jobs(query, limit=limit)
+
+    if not results:
+        console.print(f"[yellow]No matches for[/yellow] \"{query}\"")
+        raise typer.Exit()
+
+    # If --show N, display full details for that match
+    if show is not None:
+        if show < 1 or show > len(results):
+            console.print(f"[red]Invalid match number.[/red] Valid range: 1-{len(results)}")
+            raise typer.Exit(code=1)
+
+        job = results[show - 1]
+        title = job.get("title") or "Unknown"
+        site = job.get("site") or "Unknown"
+        location = job.get("location") or ""
+        score = job.get("fit_score")
+        status = job.get("apply_status") or "not applied"
+        applied_at = (job.get("applied_at") or "")[:10]
+        url = job.get("application_url") or job.get("url") or ""
+        score_reasoning = job.get("score_reasoning") or ""
+
+        # Header
+        console.print()
+        console.print(Panel(
+            f"[bold]{title}[/bold]\n"
+            f"{site} · {location}\n"
+            f"Score: [{'green' if score and score >= 7 else 'yellow'}]{score}/10[/{'green' if score and score >= 7 else 'yellow'}] · "
+            f"Status: [bold]{status}[/bold]"
+            + (f" · Applied: {applied_at}" if applied_at else "") + "\n"
+            f"URL: {url}",
+            title=f"Match #{show}",
+            border_style="cyan",
+        ))
+
+        if score_reasoning:
+            console.print(f"\n[bold]Score reasoning:[/bold] {score_reasoning}")
+
+        # Show tailored resume
+        resume_path = job.get("tailored_resume_path")
+        if resume_path:
+            txt_path = Path(resume_path)
+            if not txt_path.exists():
+                txt_path = txt_path.with_suffix(".txt")
+            if txt_path.exists():
+                resume_text = txt_path.read_text(encoding="utf-8")
+                console.print()
+                console.print(Panel(resume_text, title="Tailored Resume Sent", border_style="green"))
+            else:
+                console.print(f"\n[dim]Resume file not found: {resume_path}[/dim]")
+        else:
+            console.print("\n[dim]No tailored resume on file.[/dim]")
+
+        # Show cover letter
+        cl_path = job.get("cover_letter_path")
+        if cl_path:
+            cl_file = Path(cl_path)
+            if not cl_file.exists():
+                cl_file = cl_file.with_suffix(".txt")
+            if cl_file.exists():
+                cl_text = cl_file.read_text(encoding="utf-8")
+                console.print()
+                console.print(Panel(cl_text, title="Cover Letter Sent", border_style="blue"))
+            else:
+                console.print(f"\n[dim]Cover letter file not found: {cl_path}[/dim]")
+        else:
+            console.print("\n[dim]No cover letter on file.[/dim]")
+
+        # Show job description if available
+        job_desc_path = None
+        if resume_path:
+            job_desc_path = Path(resume_path).with_name(
+                Path(resume_path).stem + "_JOB.txt"
+            )
+        if job_desc_path and job_desc_path.exists():
+            jd_text = job_desc_path.read_text(encoding="utf-8")
+            console.print()
+            console.print(Panel(
+                jd_text[:2000] + ("\n..." if len(jd_text) > 2000 else ""),
+                title="Job Description",
+                border_style="magenta",
+            ))
+
+        console.print()
+        return
+
+    # Show results table
+    table = Table(
+        title=f"Search results for \"{query}\" ({len(results)} match{'es' if len(results) != 1 else ''})",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("#", justify="right", style="dim", width=3)
+    table.add_column("Title / Company", min_width=30)
+    table.add_column("Score", justify="center", width=5)
+    table.add_column("Status", justify="center", width=10)
+    table.add_column("Applied", justify="center", width=10)
+
+    for i, job in enumerate(results, 1):
+        title = (job.get("title") or "Unknown")[:50]
+        site = (job.get("site") or "")[:25]
+        location = (job.get("location") or "")[:25]
+        score = job.get("fit_score")
+        status = job.get("apply_status") or "-"
+        applied_at = (job.get("applied_at") or "")[:10]
+
+        score_str = f"{score}/10" if score else "-"
+        if score and score >= 7:
+            score_str = f"[green]{score_str}[/green]"
+        elif score and score >= 5:
+            score_str = f"[yellow]{score_str}[/yellow]"
+
+        if status == "applied":
+            status = f"[green]{status}[/green]"
+        elif status == "failed":
+            status = f"[red]{status}[/red]"
+
+        subtitle = f"[dim]{site}[/dim]"
+        if location:
+            subtitle += f" [dim]· {location}[/dim]"
+
+        table.add_row(str(i), f"{title}\n{subtitle}", score_str, status, applied_at or "-")
+
+    console.print()
+    console.print(table)
+    console.print(f"\n[dim]Use [bold]applypilot lookup \"{query}\" --show N[/bold] to view the resume and cover letter for match N.[/dim]")
+    console.print()
+
+
+@app.command()
 def dashboard() -> None:
     """Generate and open the HTML dashboard in your browser."""
     _bootstrap()
@@ -310,6 +461,26 @@ def dashboard() -> None:
     from applypilot.view import open_dashboard
 
     open_dashboard()
+
+
+@app.command()
+def web(
+    port: int = typer.Option(5000, "--port", "-p", help="Port to run the web server on."),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind to."),
+    debug: bool = typer.Option(False, "--debug", help="Enable Flask debug mode."),
+) -> None:
+    """Launch the local web UI for browsing and selecting jobs."""
+    _bootstrap()
+
+    from applypilot.web.app import create_app
+
+    flask_app = create_app()
+
+    console.print(f"\n[bold blue]ApplyPilot Web UI[/bold blue]")
+    console.print(f"  http://{host}:{port}")
+    console.print(f"  Press Ctrl+C to stop.\n")
+
+    flask_app.run(host=host, port=port, debug=debug, threaded=True)
 
 
 if __name__ == "__main__":

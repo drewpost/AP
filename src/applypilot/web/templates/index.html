@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}ApplyPilot — Job Browser{% endblock %}
+
+{% block content %}
+<!-- Summary cards -->
+<div class="summary">
+  <div class="stat-card stat-new">
+    <div class="stat-num" id="stat-unseen">{{ stats.get('unseen', 0) }}</div>
+    <div class="stat-label">New (Unseen)</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num" id="stat-total">{{ stats.total }}</div>
+    <div class="stat-label">Total Jobs</div>
+  </div>
+  <div class="stat-card stat-scored">
+    <div class="stat-num" id="stat-scored">{{ stats.scored }}</div>
+    <div class="stat-label">Scored</div>
+  </div>
+  <div class="stat-card stat-high">
+    <div class="stat-num" id="stat-high">{{ stats.get('score_distribution', [])|selectattr('0', 'ge', 7)|map(attribute='1')|sum }}</div>
+    <div class="stat-label">Strong Fit (7+)</div>
+  </div>
+</div>
+
+<!-- Filter bar -->
+<div class="filter-bar">
+  <div class="filter-group">
+    <label>Score</label>
+    <select id="filter-min-score" onchange="loadJobs()">
+      <option value="">All</option>
+      <option value="5">5+</option>
+      <option value="7" selected>7+ Strong</option>
+      <option value="8">8+ Excellent</option>
+      <option value="9">9+ Perfect</option>
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Remote</label>
+    <select id="filter-remote" onchange="loadJobs()">
+      <option value="">All</option>
+      <option value="remote">Remote</option>
+      <option value="hybrid">Hybrid</option>
+      <option value="onsite">Onsite</option>
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Site</label>
+    <select id="filter-site" onchange="loadJobs()">
+      <option value="">All</option>
+      {% for s in sites %}
+      <option value="{{ s }}">{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Country</label>
+    <select id="filter-country" onchange="loadJobs()">
+      <option value="">All</option>
+      {% for c in countries %}
+      <option value="{{ c }}">{{ c }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Category</label>
+    <select id="filter-company-tag" onchange="loadJobs()">
+      <option value="">All</option>
+      {% for t in company_tags %}
+      <option value="{{ t }}">{{ t }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Status</label>
+    <select id="filter-user-status" onchange="loadJobs()">
+      <option value="">All</option>
+      <option value="new">New</option>
+      <option value="reviewing">Reviewing</option>
+      <option value="shortlisted">Shortlisted</option>
+      <option value="applied">Applied</option>
+      <option value="dismissed">Dismissed</option>
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Dismissed</label>
+    <select id="filter-hide-dismissed" onchange="loadJobs()">
+      <option value="1" selected>Hidden</option>
+      <option value="0">Show All</option>
+    </select>
+  </div>
+
+  <div class="filter-group filter-search">
+    <label>Search</label>
+    <input type="text" id="filter-search" placeholder="Title, company..." oninput="debounceSearch()">
+  </div>
+</div>
+
+<!-- Bulk action bar -->
+<div class="bulk-bar" id="bulk-bar">
+  <span id="selection-count">0 selected</span>
+  <button class="btn btn-primary" onclick="processSelected()">Process Selected</button>
+  <button class="btn btn-sm" onclick="selectAllVisible()">Select All Visible</button>
+  <button class="btn btn-sm" onclick="deselectAll()">Deselect All</button>
+  <button class="btn btn-sm btn-dismiss" onclick="bulkDismissLowScore()">Dismiss Low Score</button>
+</div>
+
+<!-- Job grid -->
+<div class="job-count" id="job-count"></div>
+<div class="job-grid" id="job-grid">
+  <div class="loading">Loading jobs...</div>
+</div>
+
+<!-- Pagination -->
+<div class="pagination" id="pagination"></div>
+
+<!-- Job detail modal -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="job-modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+{% endblock %}

@@ -61,7 +61,7 @@ def _detect_provider() -> tuple[str, str, str]:
 # Client
 # ---------------------------------------------------------------------------
 
-_MAX_RETRIES = 3
+_MAX_RETRIES = 5
 _TIMEOUT = 120  # seconds
 
 
@@ -109,7 +109,7 @@ class LLMClient:
                     headers=headers,
                 )
                 if resp.status_code in (429, 503) and attempt < _MAX_RETRIES - 1:
-                    wait = 2 ** attempt
+                    wait = 5 * (attempt + 1)  # 5s, 10s, 15s, 20s
                     log.warning(
                         "LLM returned %s, retrying in %ds (attempt %d/%d)",
                         resp.status_code, wait, attempt + 1, _MAX_RETRIES,
@@ -118,7 +118,10 @@ class LLMClient:
                     continue
                 resp.raise_for_status()
                 data = resp.json()
-                return data["choices"][0]["message"]["content"]
+                content = data["choices"][0]["message"]["content"]
+                if content is None:
+                    raise ValueError("LLM returned null content")
+                return content
             except httpx.TimeoutException:
                 if attempt < _MAX_RETRIES - 1:
                     wait = 2 ** attempt

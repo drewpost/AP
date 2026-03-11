@@ -7,10 +7,12 @@ profile and resume file.
 
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone
 
+from applypilot import config
 from applypilot.config import RESUME_PATH, load_profile
 from applypilot.database import get_connection, get_jobs_by_stage
 from applypilot.llm import get_client
@@ -131,6 +133,28 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
         columns = jobs[0].keys()
         jobs = [dict(zip(columns, row)) for row in jobs]
 
+    # Filter out excluded employers from search config
+    search_cfg = config.load_search_config()
+    exclude_employers = [e.lower() for e in search_cfg.get("exclude_employers", [])]
+    if exclude_employers:
+        before = len(jobs)
+        excluded = [j for j in jobs if any(
+            pat in (j.get("site") or "").lower() or
+            pat in (j.get("title") or "").lower() or
+            pat in (j.get("url") or "").lower()
+            for pat in exclude_employers
+        )]
+        jobs = [j for j in jobs if j not in excluded]
+        if excluded:
+            now_ts = datetime.now(timezone.utc).isoformat()
+            for j in excluded:
+                conn.execute(
+                    "UPDATE jobs SET fit_score = 0, score_reasoning = ?, scored_at = ? WHERE url = ?",
+                    ("Excluded: current employer", now_ts, j["url"]),
+                )
+            conn.commit()
+            log.info("Excluded %d jobs from current employer(s): %s", len(excluded), ", ".join(exclude_employers))
+
     log.info("Scoring %d jobs sequentially...", len(jobs))
     t0 = time.time()
     completed = 0
@@ -149,7 +173,7 @@ def run_scoring(limit: int = 0, rescore: bool = False) -> dict:
 
         log.info(
             "[%d/%d] score=%d  %s",
-            completed, len(jobs), result["score"], job.get("title", "?")[:60],
+            completed, len(jobs), result["score"], (job.get("title") or "?")[:60],
         )
 
     # Write scores to DB

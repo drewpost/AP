@@ -513,6 +513,92 @@ def clean_description(text: str) -> str:
     return text.strip()
 
 
+# -- Metadata extraction (post-enrichment) -----------------------------------
+
+METADATA_EXTRACT_PROMPT = """Extract structured metadata from this job posting. Return ONLY valid JSON.
+
+JOB TITLE: {title}
+JOB LOCATION: {location}
+SOURCE SITE: {site}
+
+JOB DESCRIPTION:
+{description}
+
+Return JSON with these fields:
+{{
+  "company": "hiring company name (not the job board/agency), or null",
+  "remote_type": "remote | hybrid | onsite | unknown",
+  "salary_min": null or integer (annual equivalent in local currency, no commas),
+  "salary_max": null or integer,
+  "salary_currency": "GBP | USD | EUR | null",
+  "salary_period": "annual | daily | hourly | null",
+  "country_code": "GB | US | DE | etc. or null (ISO 3166-1 alpha-2)",
+  "brief_description": "1-2 sentence summary of the role"
+}}
+
+Rules:
+- For salary: convert day rates to integers (e.g. £500/day -> salary_min=500, salary_period="daily")
+- For remote_type: "hybrid" if mentions office days, "remote" if fully remote, "onsite" if in-office required
+- For country_code: infer from location, currency, or company HQ
+- Keep brief_description under 200 characters
+- No explanation, no markdown."""
+
+
+def extract_metadata(title: str | None, location: str | None, site: str | None,
+                     description: str) -> dict:
+    """Extract structured metadata from a job description using LLM."""
+    prompt = METADATA_EXTRACT_PROMPT.format(
+        title=title or "Unknown",
+        location=location or "Unknown",
+        site=site or "Unknown",
+        description=description[:8000],
+    )
+
+    try:
+        client = get_client()
+        raw = client.ask(prompt, temperature=0.0, max_tokens=1024)
+        from applypilot.discovery.smartextract import extract_json
+        result = extract_json(raw)
+
+        metadata = {}
+        for key in ("company", "remote_type", "salary_currency", "salary_period",
+                     "country_code", "brief_description"):
+            val = result.get(key)
+            metadata[key] = val if val and val != "null" else None
+
+        for key in ("salary_min", "salary_max"):
+            val = result.get(key)
+            if val is not None and val != "null":
+                try:
+                    metadata[key] = int(val)
+                except (ValueError, TypeError):
+                    metadata[key] = None
+            else:
+                metadata[key] = None
+
+        return metadata
+    except Exception as e:
+        log.warning("Metadata extraction failed: %s", e)
+        return {}
+
+
+def store_metadata(conn: sqlite3.Connection, url: str, metadata: dict) -> None:
+    """Write extracted metadata fields to the database."""
+    if not metadata:
+        return
+    set_parts = []
+    values = []
+    for col in ("company", "remote_type", "salary_min", "salary_max",
+                 "salary_currency", "salary_period", "country_code", "brief_description"):
+        if col in metadata:
+            set_parts.append(f"{col} = ?")
+            values.append(metadata[col])
+    if set_parts:
+        values.append(url)
+        conn.execute(f"UPDATE jobs SET {', '.join(set_parts)} WHERE url = ?", values)
+        conn.commit()
+
+
 # -- Orchestration -----------------------------------------------------------
 
 SITE_DELAYS = {
@@ -668,6 +754,13 @@ def scrape_site_batch(
                         "detail_scraped_at = ?, detail_error = NULL WHERE url = ?",
                         (result.get("full_description"), result.get("application_url"), now, url),
                     )
+                    # Extract structured metadata if we got a description
+                    if result.get("full_description"):
+                        try:
+                            metadata = extract_metadata(title, None, site, result["full_description"])
+                            store_metadata(conn, url, metadata)
+                        except Exception as e:
+                            log.warning("Metadata extraction failed for %s: %s", url[:60], e)
                 else:
                     stats["error"] += 1
                     conn.execute(

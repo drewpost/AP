@@ -120,6 +120,22 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             cover_letter_at       TEXT,
             cover_attempts        INTEGER DEFAULT 0,
 
+            -- Structured metadata (enrichment-extracted)
+            company               TEXT,
+            remote_type           TEXT,
+            salary_min            INTEGER,
+            salary_max            INTEGER,
+            salary_currency       TEXT,
+            salary_period         TEXT,
+            country_code          TEXT,
+            brief_description     TEXT,
+
+            -- UI workflow
+            ui_selected           INTEGER DEFAULT 0,
+            ui_selected_at        TEXT,
+            pipeline_status       TEXT,
+            pipeline_error        TEXT,
+
             -- Application stage
             applied_at            TEXT,
             apply_status          TEXT,
@@ -129,7 +145,15 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
             last_attempted_at     TEXT,
             apply_duration_ms     INTEGER,
             apply_task_id         TEXT,
-            verification_confidence TEXT
+            verification_confidence TEXT,
+
+            -- Observability tracking
+            first_seen_at         TEXT,
+            user_viewed_at        TEXT,
+            user_status           TEXT DEFAULT 'new',
+            user_status_at        TEXT,
+            user_notes            TEXT,
+            company_tag           TEXT
         )
     """)
     conn.commit()
@@ -170,6 +194,20 @@ _ALL_COLUMNS: dict[str, str] = {
     "cover_letter_path": "TEXT",
     "cover_letter_at": "TEXT",
     "cover_attempts": "INTEGER DEFAULT 0",
+    # Structured metadata
+    "company": "TEXT",
+    "remote_type": "TEXT",
+    "salary_min": "INTEGER",
+    "salary_max": "INTEGER",
+    "salary_currency": "TEXT",
+    "salary_period": "TEXT",
+    "country_code": "TEXT",
+    "brief_description": "TEXT",
+    # UI workflow
+    "ui_selected": "INTEGER DEFAULT 0",
+    "ui_selected_at": "TEXT",
+    "pipeline_status": "TEXT",
+    "pipeline_error": "TEXT",
     # Application
     "applied_at": "TEXT",
     "apply_status": "TEXT",
@@ -180,6 +218,13 @@ _ALL_COLUMNS: dict[str, str] = {
     "apply_duration_ms": "INTEGER",
     "apply_task_id": "TEXT",
     "verification_confidence": "TEXT",
+    # Observability tracking
+    "first_seen_at": "TEXT",
+    "user_viewed_at": "TEXT",
+    "user_status": "TEXT DEFAULT 'new'",
+    "user_status_at": "TEXT",
+    "user_notes": "TEXT",
+    "company_tag": "TEXT",
 }
 
 
@@ -323,6 +368,25 @@ def get_stats(conn: sqlite3.Connection | None = None) -> dict:
         "AND application_url IS NOT NULL"
     ).fetchone()[0]
 
+    # User status breakdown
+    status_rows = conn.execute(
+        "SELECT COALESCE(user_status, 'new') as status, COUNT(*) as cnt "
+        "FROM jobs GROUP BY COALESCE(user_status, 'new') ORDER BY cnt DESC"
+    ).fetchall()
+    stats["user_status_counts"] = {row[0]: row[1] for row in status_rows}
+
+    # New (unseen) count
+    stats["unseen"] = conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE user_viewed_at IS NULL"
+    ).fetchone()[0]
+
+    # Company tags
+    tag_rows = conn.execute(
+        "SELECT DISTINCT company_tag FROM jobs "
+        "WHERE company_tag IS NOT NULL ORDER BY company_tag"
+    ).fetchall()
+    stats["company_tags"] = [row[0] for row in tag_rows]
+
     return stats
 
 
@@ -349,10 +413,12 @@ def store_jobs(conn: sqlite3.Connection, jobs: list[dict],
             continue
         try:
             conn.execute(
-                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, discovered_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO jobs (url, title, salary, description, location, site, strategy, "
+                "discovered_at, first_seen_at, company_tag) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (url, job.get("title"), job.get("salary"), job.get("description"),
-                 job.get("location"), site, strategy, now),
+                 job.get("location"), site, strategy, now, now,
+                 job.get("company_tag")),
             )
             new += 1
         except sqlite3.IntegrityError:
@@ -360,6 +426,40 @@ def store_jobs(conn: sqlite3.Connection, jobs: list[dict],
 
     conn.commit()
     return new, existing
+
+
+def search_jobs(query: str, conn: sqlite3.Connection | None = None,
+                limit: int = 20) -> list[dict]:
+    """Search jobs by company, title, location, or URL.
+
+    Searches across site, title, location, and url columns using
+    case-insensitive LIKE matching. Returns applied jobs first,
+    then by fit_score descending.
+
+    Args:
+        query: Search term (company name, job title fragment, etc.).
+        conn: Database connection. Uses get_connection() if None.
+        limit: Maximum results to return.
+
+    Returns:
+        List of job dicts matching the query.
+    """
+    if conn is None:
+        conn = get_connection()
+
+    pattern = f"%{query}%"
+    rows = conn.execute(
+        "SELECT * FROM jobs "
+        "WHERE site LIKE ? OR title LIKE ? OR location LIKE ? OR url LIKE ? "
+        "ORDER BY applied_at DESC NULLS LAST, fit_score DESC NULLS LAST "
+        "LIMIT ?",
+        (pattern, pattern, pattern, pattern, limit),
+    ).fetchall()
+
+    if rows:
+        columns = rows[0].keys()
+        return [dict(zip(columns, row)) for row in rows]
+    return []
 
 
 def get_jobs_by_stage(conn: sqlite3.Connection | None = None,

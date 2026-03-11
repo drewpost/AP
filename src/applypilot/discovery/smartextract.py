@@ -49,19 +49,65 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 # -- Location filtering -------------------------------------------------------
 
 def _load_location_filter(search_cfg: dict | None = None):
-    """Load location accept/reject lists from search config."""
+    """Load location accept/reject lists and country from search config."""
     if search_cfg is None:
         search_cfg = config.load_search_config()
     accept = search_cfg.get("location_accept", [])
     reject = search_cfg.get("location_reject_non_remote", [])
-    return accept, reject
+    country = search_cfg.get("country")
+    return accept, reject, country
 
 
-def _location_ok(location: str | None, accept: list[str], reject: list[str]) -> bool:
-    """Check if a job location passes the user's location filter."""
+_REMOTE_RESTRICTION_RE = re.compile(
+    r"remote\s*[-–—:]\s*(?:US|USA|United States|Poland|India|Canada|Germany|"
+    r"Australia|France|Spain|Italy|Netherlands|Ireland|Brazil|Mexico|Japan|"
+    r"Singapore|Israel|South Africa)\s*(?:only|based)?",
+    re.IGNORECASE,
+)
+_REMOTE_PAREN_RE = re.compile(
+    r"remote\s*\(\s*(?:US|USA|United States|Poland|India|Canada|Germany|"
+    r"Australia|France|Spain|Italy|Netherlands|Ireland|Brazil|Mexico|Japan|"
+    r"Singapore|Israel|South Africa)\s*(?:only|based)?\s*\)",
+    re.IGNORECASE,
+)
+
+
+def _location_ok(
+    location: str | None,
+    accept: list[str],
+    reject: list[str],
+    user_country: str | None = None,
+) -> bool:
+    """Check if a job location passes the user's location filter.
+
+    Catches remote-but-restricted patterns like "Remote - US only" or
+    "Remote (Poland)" and rejects them unless the restriction matches
+    the user's country from searches.yaml.
+    """
     if not location:
         return True
     loc = location.lower()
+
+    # Check for remote with country restriction
+    restriction_match = _REMOTE_RESTRICTION_RE.search(location) or _REMOTE_PAREN_RE.search(location)
+    if restriction_match:
+        restricted_text = restriction_match.group(0).lower()
+        # If user has a country set, check if the restriction matches
+        if user_country:
+            uc = user_country.lower()
+            # Map common country codes to names for matching
+            country_aliases = {
+                "uk": ["uk", "united kingdom", "gb", "britain"],
+                "us": ["us", "usa", "united states"],
+                "de": ["germany", "de", "deutschland"],
+                "ca": ["canada", "ca"],
+            }
+            user_aliases = country_aliases.get(uc, [uc])
+            if any(alias in restricted_text for alias in user_aliases):
+                return True  # Restriction matches user's country
+        return False  # Remote restricted to a different country
+
+    # Unrestricted remote is always accepted
     if any(r in loc for r in ("remote", "anywhere", "work from home", "wfh", "distributed")):
         return True
     for r in reject:
@@ -92,6 +138,7 @@ def _store_jobs_filtered(
     strategy: str,
     accept_locs: list[str],
     reject_locs: list[str],
+    user_country: str | None = None,
 ) -> tuple[int, int]:
     """Store jobs with location filtering. Returns (new, existing)."""
     now = datetime.now(timezone.utc).isoformat()
@@ -103,7 +150,7 @@ def _store_jobs_filtered(
         url = job.get("url")
         if not url:
             continue
-        if not _location_ok(job.get("location"), accept_locs, reject_locs):
+        if not _location_ok(job.get("location"), accept_locs, reject_locs, user_country):
             filtered += 1
             continue
         try:
@@ -1017,6 +1064,7 @@ def _run_all(
     accept_locs: list[str],
     reject_locs: list[str],
     workers: int = 1,
+    user_country: str | None = None,
 ) -> dict:
     """Run smart extract on all targets.
 
@@ -1038,7 +1086,8 @@ def _run_all(
         if jobs:
             new, existing = _store_jobs_filtered(conn, jobs, target["name"],
                                                   r.get("strategy", "?"),
-                                                  accept_locs, reject_locs)
+                                                  accept_locs, reject_locs,
+                                                  user_country)
             total_new += new
             total_existing += existing
             log.info("DB: +%d new, %d already existed", new, existing)
@@ -1102,7 +1151,7 @@ def run_smart_extract(
         Dict with stats: total_new, total_existing, passed, total.
     """
     search_cfg = config.load_search_config()
-    accept_locs, reject_locs = _load_location_filter(search_cfg)
+    accept_locs, reject_locs, user_country = _load_location_filter(search_cfg)
 
     targets = build_scrape_targets(sites=sites, search_cfg=search_cfg)
 
@@ -1115,4 +1164,4 @@ def run_smart_extract(
     log.info("Sites: %d searchable, %d static | Total targets: %d (workers=%d)",
              search_sites, static_sites, len(targets), workers)
 
-    return _run_all(targets, accept_locs, reject_locs, workers=workers)
+    return _run_all(targets, accept_locs, reject_locs, workers=workers, user_country=user_country)

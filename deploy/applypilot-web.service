@@ -1,0 +1,15 @@
+[Unit]
+Description=ApplyPilot Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/applypilot
+ExecStart=/home/pi/applypilot/.venv/bin/applypilot web --host 0.0.0.0 --port 5000
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

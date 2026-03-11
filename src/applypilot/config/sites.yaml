@@ -52,6 +52,9 @@ base_urls:
   "Himalayas": "https://himalayas.app"
   "Techstars Jobs": "https://www.techstars.com"
   "Randstad Canada": "https://www.randstad.ca/jobs/search/"
+  "Reed": "https://www.reed.co.uk"
+  "Totaljobs": "https://www.totaljobs.com"
+  "CV-Library": "https://www.cv-library.co.uk"
 
 sites:
   # ── Searchable sites (URL includes query + location params) ──────────
@@ -74,6 +77,19 @@ sites:
 
   - name: "Job Bank Canada"
     url: "https://www.jobbank.gc.ca/jobsearch/jobsearch?searchstring={query_encoded}&locationstring={location_encoded}&fage=2&sort=D"
+    type: search
+
+  # UK job boards
+  - name: "Reed"
+    url: "https://www.reed.co.uk/jobs/{query_encoded}-jobs"
+    type: search
+
+  - name: "Totaljobs"
+    url: "https://www.totaljobs.com/jobs/{query_encoded}"
+    type: search
+
+  - name: "CV-Library"
+    url: "https://www.cv-library.co.uk/search-jobs?q={query_encoded}"
     type: search
 
   # General tech (with search)

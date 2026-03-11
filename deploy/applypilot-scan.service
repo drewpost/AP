@@ -1,0 +1,10 @@
+[Unit]
+Description=ApplyPilot Job Scan (oneshot)
+After=network.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/applypilot
+ExecStart=/home/pi/applypilot/deploy/scan.sh
+Environment=PYTHONUNBUFFERED=1

@@ -35,7 +35,7 @@ console = Console()
 STAGE_ORDER = ("discover", "enrich", "score", "tailor", "cover", "pdf")
 
 STAGE_META: dict[str, dict] = {
-    "discover": {"desc": "Job discovery (JobSpy + Workday + smart extract)"},
+    "discover": {"desc": "Job discovery (JobSpy + Workday + ATS boards + smart extract)"},
     "enrich":   {"desc": "Detail enrichment (full descriptions + apply URLs)"},
     "score":    {"desc": "LLM scoring (fit 1-10)"},
     "tailor":   {"desc": "Resume tailoring (LLM + validation)"},
@@ -60,8 +60,8 @@ _UPSTREAM: dict[str, str | None] = {
 # ---------------------------------------------------------------------------
 
 def _run_discover(workers: int = 1) -> dict:
-    """Stage: Job discovery — JobSpy, Workday, and smart-extract scrapers."""
-    stats: dict = {"jobspy": None, "workday": None, "smartextract": None}
+    """Stage: Job discovery — JobSpy, Workday, ATS boards, and smart-extract scrapers."""
+    stats: dict = {"jobspy": None, "workday": None, "ats": None, "smartextract": None}
 
     # JobSpy
     console.print("  [cyan]JobSpy full crawl...[/cyan]")
@@ -84,6 +84,21 @@ def _run_discover(workers: int = 1) -> dict:
         log.error("Workday scraper failed: %s", e)
         console.print(f"  [red]Workday error:[/red] {e}")
         stats["workday"] = f"error: {e}"
+
+    # ATS career page scraper (Greenhouse, Lever, Ashby)
+    console.print("  [cyan]ATS career page scraper (Greenhouse/Lever/Ashby)...[/cyan]")
+    try:
+        from applypilot.discovery.ats import run_ats_discovery
+        result = run_ats_discovery(workers=max(workers, 4))
+        stats["ats"] = f"ok: {result.get('new', 0)} new / {result.get('total_found', 0)} found"
+        console.print(
+            f"  [green]ATS:[/green] {result.get('companies_scraped', 0)} companies, "
+            f"{result.get('new', 0)} new jobs"
+        )
+    except Exception as e:
+        log.error("ATS scraper failed: %s", e)
+        console.print(f"  [red]ATS error:[/red] {e}")
+        stats["ats"] = f"error: {e}"
 
     # Smart extract
     console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")
@@ -117,7 +132,8 @@ def _run_score() -> dict:
         run_scoring()
         return {"status": "ok"}
     except Exception as e:
-        log.error("Scoring failed: %s", e)
+        import traceback
+        log.error("Scoring failed: %s\n%s", e, traceback.format_exc())
         return {"status": f"error: {e}"}
 
 
@@ -125,7 +141,7 @@ def _run_tailor(min_score: int = 7) -> dict:
     """Stage: Resume tailoring — generate tailored resumes for high-fit jobs."""
     try:
         from applypilot.scoring.tailor import run_tailoring
-        run_tailoring(min_score=min_score)
+        run_tailoring(min_score=min_score, limit=0)
         return {"status": "ok"}
     except Exception as e:
         log.error("Tailoring failed: %s", e)
@@ -136,7 +152,7 @@ def _run_cover(min_score: int = 7) -> dict:
     """Stage: Cover letter generation."""
     try:
         from applypilot.scoring.cover_letter import run_cover_letters
-        run_cover_letters(min_score=min_score)
+        run_cover_letters(min_score=min_score, limit=0)
         return {"status": "ok"}
     except Exception as e:
         log.error("Cover letter generation failed: %s", e)

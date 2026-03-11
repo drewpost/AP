@@ -1,0 +1,297 @@
+# Observability / Monitoring company registry for ATS career page scraping.
+# Each entry maps to a public job board API (Greenhouse, Lever, Ashby, or Workday).
+#
+# ATS types and their APIs:
+#   greenhouse  → GET boards-api.greenhouse.io/v1/boards/{board_token}/jobs
+#   lever       → GET api.lever.co/v0/postings/{company_slug}?mode=json
+#   ashby       → POST api.ashbyhq.com/posting-api/job-board/{org_slug}
+#   workday     → uses existing workday.py (define workday_key matching employers.yaml)
+
+companies:
+
+  # --- APM / Full-Stack Observability ---
+  datadog:
+    name: "Datadog"
+    category: "apm"
+    ats: greenhouse
+    board_token: "datadog"
+
+  new_relic:
+    name: "New Relic"
+    category: "apm"
+    ats: greenhouse
+    board_token: "newrelic"
+
+  dynatrace:
+    name: "Dynatrace"
+    category: "apm"
+    ats: greenhouse
+    board_token: "dynatrace"
+
+  grafana_labs:
+    name: "Grafana Labs"
+    category: "apm"
+    ats: greenhouse
+    board_token: "grafanalabs"
+
+  honeycomb:
+    name: "Honeycomb"
+    category: "apm"
+    ats: greenhouse
+    board_token: "honeycomb"
+
+  elastic:
+    name: "Elastic"
+    category: "apm"
+    ats: greenhouse
+    board_token: "elastic"
+
+  splunk:
+    name: "Splunk"
+    category: "apm"
+    ats: greenhouse
+    board_token: "splunk"
+
+  chronosphere:
+    name: "Chronosphere"
+    category: "apm"
+    ats: greenhouse
+    board_token: "chronosphere"
+
+  lightstep:
+    name: "Lightstep (ServiceNow)"
+    category: "apm"
+    ats: greenhouse
+    board_token: "lightstep"
+
+  groundcover:
+    name: "Groundcover"
+    category: "apm"
+    ats: greenhouse
+    board_token: "groundcover"
+
+  last9:
+    name: "Last9"
+    category: "apm"
+    ats: greenhouse
+    board_token: "last9"
+
+  middleware:
+    name: "Middleware"
+    category: "apm"
+    ats: greenhouse
+    board_token: "middleware"
+
+  dash0:
+    name: "Dash0"
+    category: "apm"
+    ats: greenhouse
+    board_token: "dash0"
+
+  # --- Error / Session Replay ---
+  sentry:
+    name: "Sentry"
+    category: "errors"
+    ats: greenhouse
+    board_token: "sentry"
+
+  logrocket:
+    name: "LogRocket"
+    category: "errors"
+    ats: greenhouse
+    board_token: "logrocket"
+
+  fullstory:
+    name: "FullStory"
+    category: "errors"
+    ats: greenhouse
+    board_token: "fullstory"
+
+  highlight:
+    name: "Highlight.io"
+    category: "errors"
+    ats: greenhouse
+    board_token: "highlight-io"
+
+  # --- Product Analytics ---
+  heap:
+    name: "Heap"
+    category: "analytics"
+    ats: greenhouse
+    board_token: "heap"
+
+  amplitude:
+    name: "Amplitude"
+    category: "analytics"
+    ats: greenhouse
+    board_token: "amplitude"
+
+  # --- Incident Management ---
+  pagerduty:
+    name: "PagerDuty"
+    category: "incident"
+    ats: greenhouse
+    board_token: "pagerduty"
+
+  incident_io:
+    name: "incident.io"
+    category: "incident"
+    ats: greenhouse
+    board_token: "incidentio"
+
+  firehydrant:
+    name: "FireHydrant"
+    category: "incident"
+    ats: greenhouse
+    board_token: "firehydrant"
+
+  rootly:
+    name: "Rootly"
+    category: "incident"
+    ats: greenhouse
+    board_token: "rootly"
+
+  blameless:
+    name: "Blameless"
+    category: "incident"
+    ats: greenhouse
+    board_token: "blameless"
+
+  squadcast:
+    name: "Squadcast"
+    category: "incident"
+    ats: greenhouse
+    board_token: "squadcast"
+
+  bigpanda:
+    name: "BigPanda"
+    category: "incident"
+    ats: greenhouse
+    board_token: "bigpanda"
+
+  moogsoft:
+    name: "Moogsoft"
+    category: "incident"
+    ats: greenhouse
+    board_token: "moogsoft"
+
+  # --- Logging / Data Pipeline ---
+  sumo_logic:
+    name: "Sumo Logic"
+    category: "logging"
+    ats: greenhouse
+    board_token: "sumologic"
+
+  coralogix:
+    name: "Coralogix"
+    category: "logging"
+    ats: greenhouse
+    board_token: "coralogix"
+
+  cribl:
+    name: "Cribl"
+    category: "logging"
+    ats: greenhouse
+    board_token: "criaborern"
+
+  axiom:
+    name: "Axiom"
+    category: "logging"
+    ats: greenhouse
+    board_token: "axiom"
+
+  mezmo:
+    name: "Mezmo"
+    category: "logging"
+    ats: greenhouse
+    board_token: "mezmo"
+
+  calyptia:
+    name: "Calyptia"
+    category: "logging"
+    ats: greenhouse
+    board_token: "calyptia"
+
+  # --- Synthetic Monitoring ---
+  catchpoint:
+    name: "Catchpoint"
+    category: "synthetic"
+    ats: greenhouse
+    board_token: "catchpoint"
+
+  thousandeyes:
+    name: "ThousandEyes"
+    category: "synthetic"
+    ats: greenhouse
+    board_token: "thousandeyes"
+
+  checkly:
+    name: "Checkly"
+    category: "synthetic"
+    ats: ashby
+    org_slug: "checkly"
+
+  uptrends:
+    name: "Uptrends"
+    category: "synthetic"
+    ats: greenhouse
+    board_token: "uptrends"
+
+  statuscake:
+    name: "StatusCake"
+    category: "synthetic"
+    ats: greenhouse
+    board_token: "statuscake"
+
+  uptime_com:
+    name: "Uptime.com"
+    category: "synthetic"
+    ats: greenhouse
+    board_token: "uptimecom"
+
+  site24x7:
+    name: "Site24x7"
+    category: "synthetic"
+    ats: greenhouse
+    board_token: "site24x7"
+
+  # --- Monitoring / Uptime ---
+  better_stack:
+    name: "Better Stack"
+    category: "monitoring"
+    ats: lever
+    company_slug: "betterstack"
+
+  observe_inc:
+    name: "Observe Inc"
+    category: "monitoring"
+    ats: greenhouse
+    board_token: "observeinc"
+
+  nobl9:
+    name: "Nobl9"
+    category: "monitoring"
+    ats: greenhouse
+    board_token: "nobl9"
+
+  containiq:
+    name: "ContainIQ"
+    category: "monitoring"
+    ats: greenhouse
+    board_token: "containiq"
+
+  baselime:
+    name: "Baselime"
+    category: "monitoring"
+    ats: greenhouse
+    board_token: "baselime"
+
+  # --- Lever-based companies ---
+  cribl_lever:
+    name: "Cribl"
+    category: "logging"
+    ats: lever
+    company_slug: "cribl"
+
+  # --- Ashby-based companies ---
+  # (checkly above already uses ashby)
