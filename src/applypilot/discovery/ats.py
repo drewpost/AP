@@ -17,7 +17,9 @@ from pathlib import Path
 import requests
 import yaml
 
+from applypilot import config
 from applypilot.database import get_connection, store_jobs
+from applypilot.discovery.jobspy import _DEFAULT_REMOTE_REJECT
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +45,28 @@ def _title_matches(title: str) -> bool:
         return False
     t = title.lower()
     return any(kw in t for kw in _TITLE_KEYWORDS)
+
+
+def _location_ok(location: str | None, accept: list[str], reject: list[str],
+                 remote_reject: list[str] | None = None) -> bool:
+    """Check if a job location passes location filter. Rejects non-UK remote jobs."""
+    if not location:
+        return True
+    loc = location.lower()
+    is_remote = any(r in loc for r in ("remote", "anywhere", "work from home", "wfh", "distributed"))
+    if is_remote:
+        reject_patterns = remote_reject if remote_reject else _DEFAULT_REMOTE_REJECT
+        for pattern in reject_patterns:
+            if pattern.lower() in loc:
+                return False
+        return True
+    for r in reject:
+        if r.lower() in loc:
+            return False
+    for a in accept:
+        if a.lower() in loc:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +330,12 @@ def run_ats_discovery(
         log.warning("No companies loaded from registry")
         return {"companies_scraped": 0, "total_found": 0, "new": 0, "existing": 0, "completed_keys": []}
 
+    # Load location filter config
+    search_cfg = config.load_search_config()
+    accept_locs = search_cfg.get("location_accept", [])
+    reject_locs = search_cfg.get("location_reject_non_remote", [])
+    remote_reject_locs = search_cfg.get("remote_reject", [])
+
     # Filter out workday companies and already-completed ones
     active = {
         k: v for k, v in companies.items()
@@ -343,17 +373,22 @@ def run_ats_discovery(
             try:
                 jobs = future.result()
                 if jobs:
-                    pm_jobs = [j for j in jobs if _title_matches(j.get("title", ""))]
-                    skipped = len(jobs) - len(pm_jobs)
-                    if pm_jobs:
-                        new, existing = store_jobs(conn, pm_jobs, site=f"ats:{name}", strategy="ats_api")
-                        total_found += len(pm_jobs)
+                    # Filter by title AND location
+                    filtered = [
+                        j for j in jobs
+                        if _title_matches(j.get("title", ""))
+                        and _location_ok(j.get("location", ""), accept_locs, reject_locs, remote_reject_locs)
+                    ]
+                    skipped = len(jobs) - len(filtered)
+                    if filtered:
+                        new, existing = store_jobs(conn, filtered, site=f"ats:{name}", strategy="ats_api")
+                        total_found += len(filtered)
                         total_new += new
                         total_existing += existing
-                        log.info("  %s: %d PM roles (%d skipped), %d new, %d existing",
-                                 name, len(pm_jobs), skipped, new, existing)
+                        log.info("  %s: %d roles (%d filtered out), %d new, %d existing",
+                                 name, len(filtered), skipped, new, existing)
                     else:
-                        log.info("  %s: %d jobs, none matched PM filter", name, len(jobs))
+                        log.info("  %s: %d jobs, none passed title+location filter", name, len(jobs))
                     companies_scraped += 1
                 else:
                     companies_scraped += 1
