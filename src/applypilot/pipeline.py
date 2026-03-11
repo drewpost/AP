@@ -60,10 +60,25 @@ _UPSTREAM: dict[str, str | None] = {
 # ---------------------------------------------------------------------------
 
 def _run_discover(workers: int = 1) -> dict:
-    """Stage: Job discovery — JobSpy, Workday, ATS boards, and smart-extract scrapers."""
-    stats: dict = {"jobspy": None, "workday": None, "ats": None, "smartextract": None}
+    """Stage: Job discovery — ATS boards first (observability vendors), then generic boards."""
+    stats: dict = {"ats": None, "jobspy": None, "workday": None, "smartextract": None}
 
-    # JobSpy
+    # ATS career page scraper FIRST (observability vendors — highest signal)
+    console.print("  [cyan]ATS career page scraper (Greenhouse/Lever/Ashby)...[/cyan]")
+    try:
+        from applypilot.discovery.ats import run_ats_discovery
+        result = run_ats_discovery(workers=max(workers, 4))
+        stats["ats"] = f"ok: {result.get('new', 0)} new / {result.get('total_found', 0)} found"
+        console.print(
+            f"  [green]ATS:[/green] {result.get('companies_scraped', 0)} companies, "
+            f"{result.get('new', 0)} new jobs"
+        )
+    except Exception as e:
+        log.error("ATS scraper failed: %s", e)
+        console.print(f"  [red]ATS error:[/red] {e}")
+        stats["ats"] = f"error: {e}"
+
+    # JobSpy (generic boards)
     console.print("  [cyan]JobSpy full crawl...[/cyan]")
     try:
         from applypilot.discovery.jobspy import run_discovery
@@ -84,21 +99,6 @@ def _run_discover(workers: int = 1) -> dict:
         log.error("Workday scraper failed: %s", e)
         console.print(f"  [red]Workday error:[/red] {e}")
         stats["workday"] = f"error: {e}"
-
-    # ATS career page scraper (Greenhouse, Lever, Ashby)
-    console.print("  [cyan]ATS career page scraper (Greenhouse/Lever/Ashby)...[/cyan]")
-    try:
-        from applypilot.discovery.ats import run_ats_discovery
-        result = run_ats_discovery(workers=max(workers, 4))
-        stats["ats"] = f"ok: {result.get('new', 0)} new / {result.get('total_found', 0)} found"
-        console.print(
-            f"  [green]ATS:[/green] {result.get('companies_scraped', 0)} companies, "
-            f"{result.get('new', 0)} new jobs"
-        )
-    except Exception as e:
-        log.error("ATS scraper failed: %s", e)
-        console.print(f"  [red]ATS error:[/red] {e}")
-        stats["ats"] = f"error: {e}"
 
     # Smart extract
     console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")

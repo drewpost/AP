@@ -26,6 +26,24 @@ _CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "companies.ya
 _SESSION_TIMEOUT = 30
 _USER_AGENT = "ApplyPilot/1.0 (job-search-tool)"
 
+# Title keywords for product management roles (case-insensitive).
+# A job title must contain at least one of these to be kept.
+_TITLE_KEYWORDS = [
+    "product manag", "product direct", "product lead", "product own",
+    "head of product", "vp product", "vp of product", "vp, product",
+    "director of product", "director, product", "chief product",
+    "group product", "staff product", "principal product",
+    "platform product", "technical product", "senior product",
+]
+
+
+def _title_matches(title: str) -> bool:
+    """Return True if the job title looks like a product management role."""
+    if not title:
+        return False
+    t = title.lower()
+    return any(kw in t for kw in _TITLE_KEYWORDS)
+
 
 # ---------------------------------------------------------------------------
 # HTML stripping helper (same approach as workday.py)
@@ -300,12 +318,19 @@ def run_ats_discovery(workers: int = 4, config_path: Path | str | None = None) -
             try:
                 jobs = future.result()
                 if jobs:
-                    new, existing = store_jobs(conn, jobs, site=f"ats:{name}", strategy="ats_api")
-                    total_found += len(jobs)
-                    total_new += new
-                    total_existing += existing
+                    # Filter to product management roles only
+                    pm_jobs = [j for j in jobs if _title_matches(j.get("title", ""))]
+                    skipped = len(jobs) - len(pm_jobs)
+                    if pm_jobs:
+                        new, existing = store_jobs(conn, pm_jobs, site=f"ats:{name}", strategy="ats_api")
+                        total_found += len(pm_jobs)
+                        total_new += new
+                        total_existing += existing
+                        log.info("  %s: %d PM roles (%d skipped), %d new, %d existing",
+                                 name, len(pm_jobs), skipped, new, existing)
+                    else:
+                        log.info("  %s: %d jobs, none matched PM filter", name, len(jobs))
                     companies_scraped += 1
-                    log.info("  %s: %d found, %d new, %d existing", name, len(jobs), new, existing)
                 else:
                     companies_scraped += 1
             except Exception as e:
