@@ -235,6 +235,30 @@ async function bulkDismissLowScore() {
   });
 }
 
+async function dismissSelected() {
+  if (selectedUrls.size === 0) return;
+  const urls = Array.from(selectedUrls);
+
+  await fetch('/api/jobs/status', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({urls, status: 'dismissed'}),
+  });
+
+  // Animate out and clear selection
+  urls.forEach(url => {
+    const card = document.querySelector(`.job-card[data-url="${CSS.escape(url)}"]`);
+    if (card) {
+      card.style.transition = 'opacity 0.3s, transform 0.3s';
+      card.style.opacity = '0';
+      card.style.transform = 'scale(0.95)';
+      setTimeout(() => card.remove(), 300);
+    }
+    selectedUrls.delete(url);
+  });
+  updateSelectionCount();
+}
+
 // -- Processing -------------------------------------------------------------
 
 async function processSelected() {
