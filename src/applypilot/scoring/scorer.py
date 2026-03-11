@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 # ── Scoring Prompt ────────────────────────────────────────────────────────
 
-SCORE_PROMPT = """You are a job fit evaluator. Given a candidate's resume and a job description, score how well the candidate fits the role.
+SCORE_PROMPT_TEMPLATE = """You are a job fit evaluator. Given a candidate's resume and a job description, score how well the candidate fits the role.
 
 SCORING CRITERIA:
 - 9-10: Perfect match. Candidate has direct experience in nearly all required skills and qualifications.
@@ -36,6 +36,13 @@ IMPORTANT FACTORS:
 - Consider transferable experience (automation, scripting, API work)
 - Factor in the candidate's project experience
 - Be realistic about experience level vs. job requirements (years of experience, seniority)
+
+LOCATION RULE:
+- The candidate is based in: {candidate_location}
+- Fully remote roles anywhere are fine (score normally)
+- Hybrid or onsite roles MUST be commutable from the candidate's location
+- If a role is hybrid/onsite and located in a different country or far-away city (e.g. Boston, San Francisco, New York for a UK candidate), cap the score at 3 maximum regardless of skill match, and note "Location: not commutable" in reasoning
+- If location is ambiguous or not specified, score normally but note the uncertainty
 
 RESPOND IN EXACTLY THIS FORMAT (no other text):
 SCORE: [1-10]
@@ -72,6 +79,33 @@ def _parse_score_response(response: str) -> dict:
     return {"score": score, "keywords": keywords, "reasoning": reasoning}
 
 
+def _get_candidate_location() -> str:
+    """Load candidate location from profile, with fallback."""
+    try:
+        profile = load_profile()
+        if profile:
+            loc = profile.get("location", "")
+            country = profile.get("country", "")
+            if loc and country:
+                return f"{loc}, {country}"
+            return loc or country or "Unknown"
+    except Exception:
+        pass
+    return "Unknown"
+
+
+# Cache the rendered prompt per process (location won't change mid-run)
+_score_prompt_cache: str | None = None
+
+
+def _get_score_prompt() -> str:
+    global _score_prompt_cache
+    if _score_prompt_cache is None:
+        location = _get_candidate_location()
+        _score_prompt_cache = SCORE_PROMPT_TEMPLATE.format(candidate_location=location)
+    return _score_prompt_cache
+
+
 def score_job(resume_text: str, job: dict) -> dict:
     """Score a single job against the resume.
 
@@ -85,12 +119,13 @@ def score_job(resume_text: str, job: dict) -> dict:
     job_text = (
         f"TITLE: {job['title']}\n"
         f"COMPANY: {job['site']}\n"
-        f"LOCATION: {job.get('location', 'N/A')}\n\n"
+        f"LOCATION: {job.get('location', 'N/A')}\n"
+        f"REMOTE TYPE: {job.get('remote_type', 'unknown')}\n\n"
         f"DESCRIPTION:\n{(job.get('full_description') or '')[:6000]}"
     )
 
     messages = [
-        {"role": "system", "content": SCORE_PROMPT},
+        {"role": "system", "content": _get_score_prompt()},
         {"role": "user", "content": f"RESUME:\n{resume_text}\n\n---\n\nJOB POSTING:\n{job_text}"},
     ]
 
