@@ -76,37 +76,89 @@ def _scrape_with_retry(kwargs: dict, max_retries: int = 2, backoff: float = 5.0)
 
 # -- Location filtering ------------------------------------------------------
 
-def _load_location_config(search_cfg: dict) -> tuple[list[str], list[str]]:
-    """Extract accept/reject location lists from search config.
-
-    Falls back to sensible defaults if not defined in the YAML.
-    """
+def _load_location_config(search_cfg: dict) -> tuple[list[str], list[str], list[str]]:
+    """Extract accept/reject/remote_reject location lists from search config."""
     accept = search_cfg.get("location_accept", [])
     reject = search_cfg.get("location_reject_non_remote", [])
-    return accept, reject
+    remote_reject = search_cfg.get("remote_reject", [])
+    return accept, reject, remote_reject
 
 
-def _location_ok(location: str | None, accept: list[str], reject: list[str]) -> bool:
+# Countries/regions that make a "remote" job clearly not available in the UK.
+# Used as fallback if remote_reject is not configured in searches.yaml.
+_DEFAULT_REMOTE_REJECT = [
+    "usa", "united states", "u.s.", "us,", "us-", "us ", "(us)",
+    "america", "american",
+    "canada", "canadian",
+    "brazil", "brasil",
+    "mexico", "méxico",
+    "india", "indian",
+    "australia", "australian",
+    "new zealand",
+    "singapore", "singaporean",
+    "japan", "japanese",
+    "china", "chinese",
+    "korea", "korean",
+    "vietnam", "vietnamese",
+    "thailand", "thai",
+    "philippines", "filipino",
+    "indonesia", "indonesian",
+    "malaysia", "malaysian",
+    "taiwan",
+    "hong kong",
+    "colombia", "colombian",
+    "argentina", "chile", "peru",
+    "costa rica", "puerto rico",
+    "south africa",
+    "nigeria",
+    "egypt",
+    "israel",
+    # US states commonly seen in remote job locations
+    "california", "new york", "texas", "florida", "illinois",
+    "washington dc", "virginia", "georgia", "massachusetts",
+    "colorado", "arizona", "oregon", "pennsylvania", "ohio",
+    "michigan", "minnesota", "north carolina", "new jersey",
+    "connecticut", "maryland", "wisconsin", "missouri",
+    "tennessee", "alabama", "louisiana", "kentucky",
+    "boston", "san francisco", "seattle", "chicago", "denver",
+    "austin", "atlanta", "miami", "portland", "phoenix",
+    "los angeles", "dallas", "houston", "charlotte",
+    "raleigh", "nashville", "detroit", "minneapolis",
+    "toronto", "vancouver", "montreal", "ottawa",
+    "mumbai", "bangalore", "hyderabad", "delhi", "pune",
+    "são paulo", "bogotá", "buenos aires", "santiago",
+    "sydney", "melbourne", "auckland",
+]
+
+
+def _location_ok(location: str | None, accept: list[str], reject: list[str],
+                 remote_reject: list[str] | None = None) -> bool:
     """Check if a job location passes the user's location filter.
 
-    Remote jobs are always accepted. Non-remote jobs must match an accept
-    pattern and not match a reject pattern.
+    Remote jobs are accepted only if they don't specify a non-UK country.
+    Non-remote jobs must match an accept pattern and not match a reject pattern.
     """
     if not location:
         return True  # unknown location -- keep it, let scorer decide
 
     loc = location.lower()
 
-    # Remote jobs always OK
-    if any(r in loc for r in ("remote", "anywhere", "work from home", "wfh", "distributed")):
+    is_remote = any(r in loc for r in ("remote", "anywhere", "work from home", "wfh", "distributed"))
+
+    if is_remote:
+        # Check if the remote job specifies a non-UK country/region
+        reject_patterns = remote_reject if remote_reject else _DEFAULT_REMOTE_REJECT
+        for pattern in reject_patterns:
+            if pattern.lower() in loc:
+                return False
         return True
 
-    # Reject non-remote matches
+    # Non-remote: reject matches
     for r in reject:
         if r.lower() in loc:
             return False
 
-    # Accept matches
+    # Non-remote: accept matches
     for a in accept:
         if a.lower() in loc:
             return True
@@ -195,6 +247,7 @@ def _run_one_search(
     accept_locs: list[str],
     reject_locs: list[str],
     glassdoor_map: dict,
+    remote_reject_locs: list[str] | None = None,
 ) -> dict:
     """Run a single search query and store results in DB."""
     s = search
@@ -272,7 +325,7 @@ def _run_one_search(
     before = len(df)
     df = df[df.apply(lambda row: _location_ok(
         str(row.get("location", "")) if str(row.get("location", "")) != "nan" else None,
-        accept_locs, reject_locs,
+        accept_locs, reject_locs, remote_reject_locs,
     ), axis=1)]
     filtered = before - len(df)
 
@@ -381,7 +434,7 @@ def _full_crawl(
     locs = search_cfg.get("locations", [])
     defaults = search_cfg.get("defaults", {})
     glassdoor_map = search_cfg.get("glassdoor_location_map", {})
-    accept_locs, reject_locs = _load_location_config(search_cfg)
+    accept_locs, reject_locs, remote_reject_locs = _load_location_config(search_cfg)
 
     if tiers:
         queries = [q for q in queries if q.get("tier") in tiers]
@@ -428,6 +481,7 @@ def _full_crawl(
             s, sites, results_per_site, hours_old,
             proxy_config, defaults, max_retries,
             accept_locs, reject_locs, glassdoor_map,
+            remote_reject_locs,
         )
         completed += 1
         total_new += result["new"]
