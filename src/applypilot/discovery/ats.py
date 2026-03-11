@@ -19,7 +19,7 @@ import yaml
 
 from applypilot import config
 from applypilot.database import get_connection, store_jobs
-from applypilot.discovery.jobspy import _DEFAULT_REMOTE_REJECT
+from applypilot.discovery import DEFAULT_REMOTE_REJECT, location_ok as _location_ok_shared
 
 log = logging.getLogger(__name__)
 
@@ -47,26 +47,7 @@ def _title_matches(title: str) -> bool:
     return any(kw in t for kw in _TITLE_KEYWORDS)
 
 
-def _location_ok(location: str | None, accept: list[str], reject: list[str],
-                 remote_reject: list[str] | None = None) -> bool:
-    """Check if a job location passes location filter. Rejects non-UK remote jobs."""
-    if not location:
-        return True
-    loc = location.lower()
-    is_remote = any(r in loc for r in ("remote", "anywhere", "work from home", "wfh", "distributed"))
-    if is_remote:
-        reject_patterns = remote_reject if remote_reject else _DEFAULT_REMOTE_REJECT
-        for pattern in reject_patterns:
-            if pattern.lower() in loc:
-                return False
-        return True
-    for r in reject:
-        if r.lower() in loc:
-            return False
-    for a in accept:
-        if a.lower() in loc:
-            return True
-    return False
+_location_ok = _location_ok_shared
 
 
 # ---------------------------------------------------------------------------

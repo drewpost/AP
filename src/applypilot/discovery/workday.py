@@ -22,6 +22,7 @@ import yaml
 from applypilot import config
 from applypilot.config import CONFIG_DIR
 from applypilot.database import get_connection, init_db
+from applypilot.discovery import location_ok as _location_ok
 
 log = logging.getLogger(__name__)
 
@@ -49,39 +50,6 @@ def _load_location_filter(search_cfg: dict | None = None):
     reject = search_cfg.get("location_reject_non_remote", [])
     remote_reject = search_cfg.get("remote_reject", [])
     return accept, reject, remote_reject
-
-
-def _location_ok(location: str | None, accept: list[str], reject: list[str],
-                 remote_reject: list[str] | None = None) -> bool:
-    """Check if a job location passes the user's location filter.
-
-    Remote jobs are rejected if they specify a non-UK country/region.
-    """
-    if not location:
-        return True
-
-    loc = location.lower()
-
-    is_remote = any(r in loc for r in ("remote", "anywhere", "work from home", "wfh", "distributed"))
-
-    if is_remote:
-        # Import the default reject list from jobspy (single source of truth)
-        from applypilot.discovery.jobspy import _DEFAULT_REMOTE_REJECT
-        reject_patterns = remote_reject if remote_reject else _DEFAULT_REMOTE_REJECT
-        for pattern in reject_patterns:
-            if pattern.lower() in loc:
-                return False
-        return True
-
-    for r in reject:
-        if r.lower() in loc:
-            return False
-
-    for a in accept:
-        if a.lower() in loc:
-            return True
-
-    return False
 
 
 # -- HTML stripper -----------------------------------------------------------
