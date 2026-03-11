@@ -59,46 +59,106 @@ _UPSTREAM: dict[str, str | None] = {
 # Individual stage runners
 # ---------------------------------------------------------------------------
 
-def _run_discover(workers: int = 1) -> dict:
-    """Stage: Job discovery — ATS boards first (observability vendors), then generic boards."""
+def _run_discover(
+    workers: int = 1,
+    stop_event: "threading.Event | None" = None,
+    progress_callback: "callable | None" = None,
+    checkpoint: "dict | None" = None,
+) -> dict:
+    """Stage: Job discovery — ATS boards first, then generic boards.
+
+    Args:
+        workers: Thread count for parallel sources.
+        stop_event: If set, stop gracefully between sources.
+        progress_callback: Called with (phase, current, total, label) for progress.
+        checkpoint: Resume checkpoint dict with completed items per source.
+    """
     stats: dict = {"ats": None, "jobspy": None, "workday": None, "smartextract": None}
+    cp = checkpoint or {}
+
+    def _stopped():
+        return stop_event and stop_event.is_set()
 
     # ATS career page scraper FIRST (observability vendors — highest signal)
-    console.print("  [cyan]ATS career page scraper (Greenhouse/Lever/Ashby)...[/cyan]")
-    try:
-        from applypilot.discovery.ats import run_ats_discovery
-        result = run_ats_discovery(workers=max(workers, 4))
-        stats["ats"] = f"ok: {result.get('new', 0)} new / {result.get('total_found', 0)} found"
-        console.print(
-            f"  [green]ATS:[/green] {result.get('companies_scraped', 0)} companies, "
-            f"{result.get('new', 0)} new jobs"
-        )
-    except Exception as e:
-        log.error("ATS scraper failed: %s", e)
-        console.print(f"  [red]ATS error:[/red] {e}")
-        stats["ats"] = f"error: {e}"
+    if "ats" not in cp.get("phases_done", []):
+        console.print("  [cyan]ATS career page scraper (Greenhouse/Lever/Ashby)...[/cyan]")
+        try:
+            from applypilot.discovery.ats import run_ats_discovery
+
+            def ats_progress(cur, total, name):
+                if progress_callback:
+                    progress_callback("ats", cur, total, name)
+
+            result = run_ats_discovery(
+                workers=max(workers, 4),
+                stop_event=stop_event,
+                progress_callback=ats_progress,
+                skip_companies=set(cp.get("ats_done", [])),
+            )
+            stats["ats"] = f"ok: {result.get('new', 0)} new / {result.get('total_found', 0)} found"
+            stats["ats_completed_keys"] = result.get("completed_keys", [])
+            console.print(
+                f"  [green]ATS:[/green] {result.get('companies_scraped', 0)} companies, "
+                f"{result.get('new', 0)} new jobs"
+            )
+        except Exception as e:
+            log.error("ATS scraper failed: %s", e)
+            console.print(f"  [red]ATS error:[/red] {e}")
+            stats["ats"] = f"error: {e}"
+
+    if _stopped():
+        return stats
 
     # JobSpy (generic boards)
-    console.print("  [cyan]JobSpy full crawl...[/cyan]")
-    try:
-        from applypilot.discovery.jobspy import run_discovery
-        run_discovery()
-        stats["jobspy"] = "ok"
-    except Exception as e:
-        log.error("JobSpy crawl failed: %s", e)
-        console.print(f"  [red]JobSpy error:[/red] {e}")
-        stats["jobspy"] = f"error: {e}"
+    if "jobspy" not in cp.get("phases_done", []):
+        console.print("  [cyan]JobSpy full crawl...[/cyan]")
+        try:
+            from applypilot.discovery.jobspy import run_discovery
+
+            def jobspy_progress(cur, total, label):
+                if progress_callback:
+                    progress_callback("jobspy", cur, total, label)
+
+            result = run_discovery(
+                stop_event=stop_event,
+                progress_callback=jobspy_progress,
+                skip_indices=set(cp.get("jobspy_done", [])),
+            )
+            stats["jobspy"] = "ok"
+            stats["jobspy_completed_indices"] = result.get("completed_indices", [])
+        except Exception as e:
+            log.error("JobSpy crawl failed: %s", e)
+            console.print(f"  [red]JobSpy error:[/red] {e}")
+            stats["jobspy"] = f"error: {e}"
+
+    if _stopped():
+        return stats
 
     # Workday corporate scraper
-    console.print("  [cyan]Workday corporate scraper...[/cyan]")
-    try:
-        from applypilot.discovery.workday import run_workday_discovery
-        run_workday_discovery(workers=workers)
-        stats["workday"] = "ok"
-    except Exception as e:
-        log.error("Workday scraper failed: %s", e)
-        console.print(f"  [red]Workday error:[/red] {e}")
-        stats["workday"] = f"error: {e}"
+    if "workday" not in cp.get("phases_done", []):
+        console.print("  [cyan]Workday corporate scraper...[/cyan]")
+        try:
+            from applypilot.discovery.workday import run_workday_discovery
+
+            def workday_progress(cur, total, query):
+                if progress_callback:
+                    progress_callback("workday", cur, total, query)
+
+            result = run_workday_discovery(
+                workers=workers,
+                stop_event=stop_event,
+                progress_callback=workday_progress,
+                skip_queries=cp.get("workday_done"),
+            )
+            stats["workday"] = "ok"
+            stats["workday_completed_queries"] = result.get("completed_queries", {})
+        except Exception as e:
+            log.error("Workday scraper failed: %s", e)
+            console.print(f"  [red]Workday error:[/red] {e}")
+            stats["workday"] = f"error: {e}"
+
+    if _stopped():
+        return stats
 
     # Smart extract
     console.print("  [cyan]Smart extract (AI-powered scraping)...[/cyan]")

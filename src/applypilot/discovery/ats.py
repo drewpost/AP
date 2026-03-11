@@ -280,20 +280,37 @@ def _scrape_company(key: str, info: dict) -> list[dict]:
 # Parallel ATS discovery runner
 # ---------------------------------------------------------------------------
 
-def run_ats_discovery(workers: int = 4, config_path: Path | str | None = None) -> dict:
+def run_ats_discovery(
+    workers: int = 4,
+    config_path: Path | str | None = None,
+    stop_event: "threading.Event | None" = None,
+    progress_callback: "callable | None" = None,
+    skip_companies: "set | None" = None,
+) -> dict:
     """Scrape all company career pages in parallel and store results.
 
     Args:
         workers: Number of parallel threads.
         config_path: Override path to companies.yaml.
+        stop_event: If set, stop gracefully between companies.
+        progress_callback: Called with (current, total, company_name) after each company.
+        skip_companies: Set of company keys to skip (for resume support).
 
     Returns:
-        Dict with stats: companies_scraped, total_found, new, existing, errors.
+        Dict with stats: companies_scraped, total_found, new, existing, errors, completed_keys.
     """
+    import threading as _threading
+
     companies = load_companies(config_path)
     if not companies:
         log.warning("No companies loaded from registry")
-        return {"companies_scraped": 0, "total_found": 0, "new": 0, "existing": 0}
+        return {"companies_scraped": 0, "total_found": 0, "new": 0, "existing": 0, "completed_keys": []}
+
+    # Filter out workday companies and already-completed ones
+    active = {
+        k: v for k, v in companies.items()
+        if v.get("ats") != "workday" and (skip_companies is None or k not in skip_companies)
+    }
 
     conn = get_connection()
     total_found = 0
@@ -301,24 +318,31 @@ def run_ats_discovery(workers: int = 4, config_path: Path | str | None = None) -
     total_existing = 0
     errors = 0
     companies_scraped = 0
+    completed_keys: list[str] = []
+    total_companies = len(active)
     t0 = time.time()
 
-    log.info("ATS discovery: %d companies, %d workers", len(companies), workers)
+    log.info("ATS discovery: %d companies, %d workers", total_companies, workers)
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
             executor.submit(_scrape_company, key, info): (key, info)
-            for key, info in companies.items()
-            if info.get("ats") != "workday"  # skip workday — handled separately
+            for key, info in active.items()
         }
 
         for future in as_completed(futures):
+            # Check stop event
+            if stop_event and stop_event.is_set():
+                log.info("ATS discovery: stop requested, cancelling remaining")
+                for f in futures:
+                    f.cancel()
+                break
+
             key, info = futures[future]
             name = info.get("name", key)
             try:
                 jobs = future.result()
                 if jobs:
-                    # Filter to product management roles only
                     pm_jobs = [j for j in jobs if _title_matches(j.get("title", ""))]
                     skipped = len(jobs) - len(pm_jobs)
                     if pm_jobs:
@@ -333,9 +357,14 @@ def run_ats_discovery(workers: int = 4, config_path: Path | str | None = None) -
                     companies_scraped += 1
                 else:
                     companies_scraped += 1
+                completed_keys.append(key)
             except Exception as e:
                 log.error("  %s: error — %s", name, e)
                 errors += 1
+                completed_keys.append(key)
+
+            if progress_callback:
+                progress_callback(len(completed_keys), total_companies, name)
 
     elapsed = time.time() - t0
     log.info(
@@ -350,4 +379,5 @@ def run_ats_discovery(workers: int = 4, config_path: Path | str | None = None) -
         "existing": total_existing,
         "errors": errors,
         "elapsed": elapsed,
+        "completed_keys": completed_keys,
     }

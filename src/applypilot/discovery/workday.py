@@ -469,42 +469,45 @@ def scrape_employers(
 
 # -- Public entry point ------------------------------------------------------
 
-def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> dict:
+def run_workday_discovery(
+    employers: dict | None = None,
+    workers: int = 1,
+    stop_event: "threading.Event | None" = None,
+    progress_callback: "callable | None" = None,
+    skip_queries: "dict | None" = None,
+) -> dict:
     """Main entry point for Workday-based corporate job discovery.
-
-    Loads employer registry from config/employers.yaml (or uses the provided
-    dict), then loads search queries from the user's search config to run
-    a full crawl across all employers.
 
     Args:
         employers: Override the employer registry. If None, loads from YAML.
-        workers: Number of parallel threads for employer scraping. Default 1 (sequential).
+        workers: Number of parallel threads.
+        stop_event: If set, stop gracefully between queries.
+        progress_callback: Called with (current, total, query) after each query.
+        skip_queries: Dict of {query: [employer_keys]} already completed (for resume).
 
     Returns:
-        Dict with stats: found, new, existing, queries.
+        Dict with stats: found, new, existing, queries, completed_queries.
     """
     if employers is None:
         employers = load_employers()
 
     if not employers:
         log.warning("No employers configured. Create config/employers.yaml.")
-        return {"found": 0, "new": 0, "existing": 0, "queries": 0}
+        return {"found": 0, "new": 0, "existing": 0, "queries": 0, "completed_queries": {}}
 
     search_cfg = config.load_search_config()
     queries_cfg = search_cfg.get("queries", [])
     accept_locs, reject_locs = _load_location_filter(search_cfg)
 
-    # Default to tier 1-2 queries for workday scraping
     max_tier = search_cfg.get("workday_max_tier", 2)
     queries = [q["query"] for q in queries_cfg if q.get("tier", 99) <= max_tier]
 
     if not queries:
-        # Fallback: use all queries
         queries = [q["query"] for q in queries_cfg]
 
     if not queries:
         log.warning("No search queries configured in searches.yaml.")
-        return {"found": 0, "new": 0, "existing": 0, "queries": 0}
+        return {"found": 0, "new": 0, "existing": 0, "queries": 0, "completed_queries": {}}
 
     proxy = search_cfg.get("proxy")
     if proxy:
@@ -517,8 +520,21 @@ def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> di
     grand_new = 0
     grand_existing = 0
     grand_found = 0
+    completed_queries: dict[str, list[str]] = {}
 
     for i, query in enumerate(queries, 1):
+        if stop_event and stop_event.is_set():
+            log.info("Workday crawl: stop requested at query %d/%d", i, len(queries))
+            break
+
+        # Skip fully completed queries on resume
+        if skip_queries and query in skip_queries:
+            log.info("Workday: skipping completed query '%s'", query)
+            completed_queries[query] = skip_queries[query]
+            if progress_callback:
+                progress_callback(i, len(queries), query)
+            continue
+
         log.info("Query %d/%d: \"%s\"", i, len(queries), query)
         result = scrape_employers(
             search_text=query,
@@ -531,6 +547,10 @@ def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> di
         grand_new += result["new"]
         grand_existing += result["existing"]
         grand_found += result["found"]
+        completed_queries[query] = list(employers.keys())
+
+        if progress_callback:
+            progress_callback(i, len(queries), query)
 
     log.info("Workday crawl done: %d found, %d new, %d existing across %d queries x %d employers",
              grand_found, grand_new, grand_existing, len(queries), len(employers))
@@ -540,4 +560,5 @@ def run_workday_discovery(employers: dict | None = None, workers: int = 1) -> di
         "new": grand_new,
         "existing": grand_existing,
         "queries": len(queries),
+        "completed_queries": completed_queries,
     }

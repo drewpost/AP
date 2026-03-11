@@ -1,8 +1,12 @@
 """JSON API endpoints for the ApplyPilot web UI."""
 
+import json
 import logging
+import os
 import threading
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import Blueprint, jsonify, request, Response
 
@@ -11,6 +15,60 @@ from applypilot.web.sse import bus, SSELogHandler
 from applypilot.web import worker as pipeline_worker
 
 api = Blueprint("api", __name__, url_prefix="/api")
+
+# ---------------------------------------------------------------------------
+# Scan state management
+# ---------------------------------------------------------------------------
+
+_CHECKPOINT_PATH = Path(os.path.expanduser("~/.applypilot/scan_checkpoint.json"))
+
+_scan_state: dict = {
+    "status": "idle",       # idle | running | stopping | stopped | done | error
+    "phase": None,          # ats | jobspy | workday | enriching | scoring
+    "progress_current": 0,
+    "progress_total": 0,
+    "progress_label": "",
+    "started_at": None,
+    "error": None,
+    "has_checkpoint": _CHECKPOINT_PATH.exists(),
+}
+_scan_lock = threading.Lock()
+_stop_event = threading.Event()
+_scan_thread: threading.Thread | None = None
+
+
+def _update_scan_state(**kwargs):
+    """Thread-safe scan state update + publish SSE."""
+    with _scan_lock:
+        _scan_state.update(kwargs)
+        snapshot = dict(_scan_state)
+    bus.publish("scan_progress", snapshot)
+
+
+def _load_checkpoint() -> dict | None:
+    """Load checkpoint from disk, or None if not present."""
+    if _CHECKPOINT_PATH.exists():
+        try:
+            return json.loads(_CHECKPOINT_PATH.read_text())
+        except Exception:
+            return None
+    return None
+
+
+def _save_checkpoint(data: dict):
+    """Persist checkpoint to disk."""
+    _CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CHECKPOINT_PATH.write_text(json.dumps(data, indent=2))
+    with _scan_lock:
+        _scan_state["has_checkpoint"] = True
+
+
+def _clear_checkpoint():
+    """Remove checkpoint file."""
+    if _CHECKPOINT_PATH.exists():
+        _CHECKPOINT_PATH.unlink()
+    with _scan_lock:
+        _scan_state["has_checkpoint"] = False
 
 
 @api.route("/jobs")
@@ -179,6 +237,12 @@ def stats():
     ).fetchall()
     s["country_codes"] = [r[0] for r in countries]
 
+    # Company tags for filter
+    tags = conn.execute(
+        "SELECT DISTINCT company_tag FROM jobs WHERE company_tag IS NOT NULL ORDER BY company_tag"
+    ).fetchall()
+    s["company_tags"] = [r[0] for r in tags]
+
     return jsonify(s)
 
 
@@ -275,11 +339,61 @@ def pipeline_status():
     })
 
 
+@api.route("/scan/status")
+def scan_status():
+    """Return current scan state (used on page load to restore UI)."""
+    with _scan_lock:
+        state = dict(_scan_state)
+    state["has_checkpoint"] = _CHECKPOINT_PATH.exists()
+    return jsonify(state)
+
+
+@api.route("/scan/stop", methods=["POST"])
+def scan_stop():
+    """Request graceful stop of running scan."""
+    with _scan_lock:
+        if _scan_state["status"] not in ("running",):
+            return jsonify({"status": "not_running"})
+        _scan_state["status"] = "stopping"
+    _stop_event.set()
+    bus.publish("scan_progress", {"status": "stopping"})
+    return jsonify({"status": "stopping"})
+
+
 @api.route("/discover", methods=["POST"])
 def trigger_discover():
-    """Trigger discover+enrich+score in background."""
+    """Trigger discover+enrich+score in background with progress tracking."""
+    global _scan_thread
+
+    resume = request.args.get("resume", "0") == "1"
+
+    with _scan_lock:
+        if _scan_state["status"] == "running":
+            return jsonify({"status": "already_running"}), 409
+
+    # Reset stop event for new run
+    _stop_event.clear()
+
+    # Load or clear checkpoint
+    checkpoint = None
+    if resume:
+        checkpoint = _load_checkpoint()
+    else:
+        _clear_checkpoint()
+
     def _run_discovery():
+        global _scan_thread
         from applypilot.database import _on_jobs_stored
+
+        _update_scan_state(
+            status="running",
+            phase="ats",
+            progress_current=0,
+            progress_total=0,
+            progress_label="Starting...",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            error=None,
+        )
 
         # Callback: publish SSE when new jobs are stored
         def _on_stored(new, existing, site, summary):
@@ -289,11 +403,18 @@ def trigger_discover():
                 "site": site,
             })
 
-        # Attach callback and log handler
         _on_jobs_stored.append(_on_stored)
         log_handler = SSELogHandler(bus)
         root_logger = logging.getLogger("applypilot")
         root_logger.addHandler(log_handler)
+
+        cp = checkpoint or {}
+        current_cp = {
+            "ats_done": list(cp.get("ats_done", [])),
+            "jobspy_done": list(cp.get("jobspy_done", [])),
+            "workday_done": dict(cp.get("workday_done", {})),
+            "phases_done": list(cp.get("phases_done", [])),
+        }
 
         try:
             from applypilot.config import load_env, ensure_dirs
@@ -305,26 +426,79 @@ def trigger_discover():
 
             bus.publish("discover_status", {"status": "discovering"})
 
+            # -- Progress callback for discovery sources --
+            def _progress_cb(phase, current, total, label):
+                _update_scan_state(
+                    phase=phase,
+                    progress_current=current,
+                    progress_total=total,
+                    progress_label=label,
+                )
+
             from applypilot.pipeline import _run_discover, _run_enrich, _run_score
-            _run_discover()
+
+            # Run discovery with stop_event + checkpoint
+            result = _run_discover(
+                stop_event=_stop_event,
+                progress_callback=_progress_cb,
+                checkpoint=cp,
+            )
+
+            # Update checkpoint with completed items
+            current_cp["ats_done"].extend(result.get("ats_completed_keys", []))
+            current_cp["jobspy_done"].extend(result.get("jobspy_completed_indices", []))
+            if result.get("workday_completed_queries"):
+                current_cp["workday_done"].update(result["workday_completed_queries"])
+
+            # Mark phases as done if not stopped
+            if not _stop_event.is_set():
+                for phase in ("ats", "jobspy", "workday"):
+                    if phase not in current_cp["phases_done"]:
+                        current_cp["phases_done"].append(phase)
+
+            _save_checkpoint(current_cp)
+
+            if _stop_event.is_set():
+                _update_scan_state(status="stopped", phase=None, progress_label="Stopped")
+                bus.publish("discover_status", {"status": "stopped"})
+                return
+
+            # -- Enrichment --
+            _update_scan_state(phase="enriching", progress_current=0, progress_total=0, progress_label="Enriching...")
             bus.publish("discover_status", {"status": "enriching"})
             _run_enrich()
+
+            if _stop_event.is_set():
+                _update_scan_state(status="stopped", phase=None, progress_label="Stopped")
+                bus.publish("discover_status", {"status": "stopped"})
+                return
+
+            # -- Scoring --
+            _update_scan_state(phase="scoring", progress_current=0, progress_total=0, progress_label="Scoring...")
             bus.publish("discover_status", {"status": "scoring"})
             _run_score()
+
+            # All done — clear checkpoint
+            _clear_checkpoint()
+            _update_scan_state(status="done", phase=None, progress_current=0, progress_total=0, progress_label="")
             bus.publish("discover_status", {"status": "done"})
+
         except Exception as e:
+            _update_scan_state(status="error", error=str(e))
             bus.publish("discover_status", {"status": "error", "error": str(e)})
+            # Save checkpoint on error so user can resume
+            _save_checkpoint(current_cp)
         finally:
-            # Clean up callback and log handler
             try:
                 _on_jobs_stored.remove(_on_stored)
             except ValueError:
                 pass
             root_logger.removeHandler(log_handler)
+            _scan_thread = None
 
-    t = threading.Thread(target=_run_discovery, name="discover-bg", daemon=True)
-    t.start()
-    return jsonify({"status": "started"})
+    _scan_thread = threading.Thread(target=_run_discovery, name="discover-bg", daemon=True)
+    _scan_thread.start()
+    return jsonify({"status": "started", "resume": resume})
 
 
 @api.route("/jobs/recent")

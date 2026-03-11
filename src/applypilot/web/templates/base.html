@@ -19,9 +19,15 @@
     <div class="top-actions">
       <span id="worker-badge" class="badge badge-dim">Worker: idle</span>
       <button id="btn-discover" class="btn btn-sm" onclick="triggerDiscover()">Scan Now</button>
+      <button id="btn-scan-stop" class="btn btn-sm btn-stop" onclick="stopScan()" style="display:none">Stop</button>
+      <button id="btn-resume" class="btn btn-sm btn-resume" onclick="resumeScan()" style="display:none">Resume</button>
       <button id="btn-log-toggle" class="btn btn-sm btn-log-toggle" onclick="toggleLogPanel()">Log</button>
     </div>
   </header>
+  <div id="scan-progress-bar" class="scan-progress-bar" style="display:none">
+    <div class="scan-progress-fill" id="scan-progress-fill"></div>
+    <span class="scan-progress-label" id="scan-progress-label"></span>
+  </div>
   <main>
     {% block content %}{% endblock %}
   </main>

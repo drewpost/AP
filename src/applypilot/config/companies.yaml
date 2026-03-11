@@ -1,8 +1,9 @@
-# Observability / Monitoring company registry for ATS career page scraping.
+# Company registry for ATS career page scraping.
 # Only verified board tokens/slugs — all tested and returning valid responses.
 #
 # ATS types and their APIs:
 #   greenhouse  → GET boards-api.greenhouse.io/v1/boards/{board_token}/jobs
+#   lever       → GET api.lever.co/v0/postings/{company_slug}?mode=json
 #   ashby       → GET api.ashbyhq.com/posting-api/job-board/{org_slug}
 #
 # Title filtering: jobs are filtered to product management roles in ats.py
@@ -203,3 +204,277 @@ companies:
     category: "data_observability"
     ats: ashby
     org_slug: "observeinc"
+
+  # ==========================================================================
+  # RUM / Digital Experience
+  # ==========================================================================
+
+  contentsquare:
+    name: "Contentsquare"
+    category: "rum"
+    ats: lever
+    company_slug: "contentsquare"
+
+  quantum_metric:
+    name: "Quantum Metric"
+    category: "rum"
+    ats: lever
+    company_slug: "quantummetric"
+
+  glassbox:
+    name: "Glassbox"
+    category: "rum"
+    ats: greenhouse
+    board_token: "glassboxltd"
+
+  fullstory:
+    name: "FullStory"
+    category: "rum"
+    ats: ashby
+    org_slug: "fullstory"
+
+  solarwinds:
+    name: "SolarWinds"
+    category: "synthetic"
+    ats: greenhouse
+    board_token: "solarwinds"
+
+  # ==========================================================================
+  # Security Observability
+  # ==========================================================================
+
+  wiz:
+    name: "Wiz"
+    category: "security"
+    ats: greenhouse
+    board_token: "wizinc"
+
+  orca_security:
+    name: "Orca Security"
+    category: "security"
+    ats: greenhouse
+    board_token: "orcasecurity"
+
+  sysdig:
+    name: "Sysdig"
+    category: "security"
+    ats: lever
+    company_slug: "sysdig"
+
+  tenable:
+    name: "Tenable"
+    category: "security"
+    ats: greenhouse
+    board_token: "tenableinc"
+
+  veracode:
+    name: "Veracode"
+    category: "security"
+    ats: greenhouse
+    board_token: "veracode"
+
+  chainguard:
+    name: "Chainguard"
+    category: "security"
+    ats: greenhouse
+    board_token: "chainguard"
+
+  endor_labs:
+    name: "Endor Labs"
+    category: "security"
+    ats: greenhouse
+    board_token: "endorlabs"
+
+  semgrep:
+    name: "Semgrep"
+    category: "security"
+    ats: ashby
+    org_slug: "semgrep"
+
+  socket:
+    name: "Socket"
+    category: "security"
+    ats: ashby
+    org_slug: "socket"
+
+  contrast_security:
+    name: "Contrast Security"
+    category: "security"
+    ats: ashby
+    org_slug: "contrast-security"
+
+  # ==========================================================================
+  # CI/CD Platforms
+  # ==========================================================================
+
+  harness:
+    name: "Harness"
+    category: "cicd"
+    ats: greenhouse
+    board_token: "harnessinc"
+
+  circleci:
+    name: "CircleCI"
+    category: "cicd"
+    ats: greenhouse
+    board_token: "circleci"
+
+  jfrog:
+    name: "JFrog"
+    category: "cicd"
+    ats: greenhouse
+    board_token: "jfrog"
+
+  buildkite:
+    name: "Buildkite"
+    category: "cicd"
+    ats: greenhouse
+    board_token: "buildkite"
+
+  octopus_deploy:
+    name: "Octopus Deploy"
+    category: "cicd"
+    ats: greenhouse
+    board_token: "octopusdeploy"
+
+  akuity:
+    name: "Akuity"
+    category: "cicd"
+    ats: greenhouse
+    board_token: "akuity"
+
+  # ==========================================================================
+  # AIOps / AI SRE
+  # ==========================================================================
+
+  cleric:
+    name: "Cleric"
+    category: "aiops"
+    ats: ashby
+    org_slug: "cleric"
+
+  # ==========================================================================
+  # Feature Flags
+  # ==========================================================================
+
+  launchdarkly:
+    name: "LaunchDarkly"
+    category: "feature_flags"
+    ats: greenhouse
+    board_token: "launchdarkly"
+
+  statsig:
+    name: "Statsig"
+    category: "feature_flags"
+    ats: ashby
+    org_slug: "statsig"
+
+  # ==========================================================================
+  # FinOps / Cloud Cost
+  # ==========================================================================
+
+  vantage:
+    name: "Vantage"
+    category: "finops"
+    ats: ashby
+    org_slug: "vantage"
+
+  cloudzero:
+    name: "CloudZero"
+    category: "finops"
+    ats: ashby
+    org_slug: "cloudzero"
+
+  finout:
+    name: "Finout"
+    category: "finops"
+    ats: ashby
+    org_slug: "finout"
+
+  antimetal:
+    name: "Antimetal"
+    category: "finops"
+    ats: ashby
+    org_slug: "antimetal"
+
+  # ==========================================================================
+  # Developer Tools / Platforms
+  # ==========================================================================
+
+  vercel:
+    name: "Vercel"
+    category: "devtools"
+    ats: greenhouse
+    board_token: "vercel"
+
+  netlify:
+    name: "Netlify"
+    category: "devtools"
+    ats: greenhouse
+    board_token: "netlify"
+
+  supabase:
+    name: "Supabase"
+    category: "devtools"
+    ats: ashby
+    org_slug: "supabase"
+
+  planetscale:
+    name: "PlanetScale"
+    category: "devtools"
+    ats: greenhouse
+    board_token: "planetscale"
+
+  neon:
+    name: "Neon"
+    category: "devtools"
+    ats: ashby
+    org_slug: "neon"
+
+  render:
+    name: "Render"
+    category: "devtools"
+    ats: ashby
+    org_slug: "render"
+
+  railway:
+    name: "Railway"
+    category: "devtools"
+    ats: ashby
+    org_slug: "railway"
+
+  cloudflare:
+    name: "Cloudflare"
+    category: "devtools"
+    ats: greenhouse
+    board_token: "cloudflare"
+
+  fastly:
+    name: "Fastly"
+    category: "devtools"
+    ats: greenhouse
+    board_token: "fastly"
+
+  temporal:
+    name: "Temporal"
+    category: "devtools"
+    ats: greenhouse
+    board_token: "temporaltechnologies"
+
+  kong:
+    name: "Kong"
+    category: "devtools"
+    ats: ashby
+    org_slug: "kong"
+
+  postman:
+    name: "Postman"
+    category: "devtools"
+    ats: greenhouse
+    board_token: "postman"
+
+  gitlab:
+    name: "GitLab"
+    category: "devtools"
+    ats: greenhouse
+    board_token: "gitlab"

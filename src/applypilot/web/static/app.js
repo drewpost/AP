@@ -260,13 +260,66 @@ async function processSelected() {
   loadStats();
 }
 
-// -- Discovery trigger ------------------------------------------------------
+// -- Scan control -----------------------------------------------------------
+
+function setScanUI(state) {
+  const btn = document.getElementById('btn-discover');
+  const stopBtn = document.getElementById('btn-scan-stop');
+  const resumeBtn = document.getElementById('btn-resume');
+  const bar = document.getElementById('scan-progress-bar');
+  const fill = document.getElementById('scan-progress-fill');
+  const label = document.getElementById('scan-progress-label');
+
+  if (!btn) return;
+
+  if (state === 'running' || state === 'stopping') {
+    btn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = state === 'running' ? '' : 'none';
+    if (resumeBtn) resumeBtn.style.display = 'none';
+    if (bar) bar.style.display = '';
+  } else if (state === 'stopped' || state === 'error') {
+    btn.textContent = 'New Scan';
+    btn.disabled = false;
+    btn.style.display = '';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (resumeBtn) resumeBtn.style.display = '';
+    if (bar) bar.style.display = '';
+  } else {
+    // idle / done
+    btn.textContent = 'Scan Now';
+    btn.disabled = false;
+    btn.style.display = '';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (resumeBtn) resumeBtn.style.display = 'none';
+    if (bar) { bar.style.display = 'none'; }
+    if (fill) fill.style.width = '0%';
+    if (label) label.textContent = '';
+  }
+}
+
+function updateProgressBar(data) {
+  const fill = document.getElementById('scan-progress-fill');
+  const label = document.getElementById('scan-progress-label');
+  const bar = document.getElementById('scan-progress-bar');
+  if (!bar) return;
+
+  bar.style.display = '';
+
+  const pct = data.progress_total > 0
+    ? Math.round((data.progress_current / data.progress_total) * 100)
+    : 0;
+
+  if (fill) fill.style.width = pct + '%';
+
+  const phaseNames = {ats: 'ATS', jobspy: 'JobSpy', workday: 'Workday', enriching: 'Enriching', scoring: 'Scoring'};
+  const phaseName = phaseNames[data.phase] || data.phase || '';
+  const labelText = data.progress_label || '';
+  const progress = data.progress_total > 0 ? ` ${data.progress_current}/${data.progress_total}` : '';
+
+  if (label) label.textContent = `${phaseName}${progress} ${labelText}`.trim();
+}
 
 async function triggerDiscover() {
-  const btn = document.getElementById('btn-discover');
-  btn.textContent = 'Scanning...';
-  btn.disabled = true;
-
   // Reset streaming state
   _lastDiscoveredAt = new Date().toISOString();
   _knownUrls = new Set();
@@ -279,8 +332,43 @@ async function triggerDiscover() {
     panel.classList.add('open');
   }
 
+  setScanUI('running');
   await fetch('/api/discover', {method: 'POST'});
-  // Will get updates via SSE
+}
+
+async function resumeScan() {
+  _logManualClose = false;
+  const panel = document.getElementById('log-panel');
+  if (panel && !panel.classList.contains('open')) {
+    panel.classList.add('open');
+  }
+
+  setScanUI('running');
+  await fetch('/api/discover?resume=1', {method: 'POST'});
+}
+
+async function stopScan() {
+  setScanUI('stopping');
+  await fetch('/api/scan/stop', {method: 'POST'});
+}
+
+async function restoreScanState() {
+  try {
+    const resp = await fetch('/api/scan/status');
+    const state = await resp.json();
+
+    setScanUI(state.status);
+    if (state.status === 'running' || state.status === 'stopping') {
+      updateProgressBar(state);
+    }
+    // Show resume button if checkpoint exists and scan isn't running
+    if (state.has_checkpoint && state.status !== 'running') {
+      const resumeBtn = document.getElementById('btn-resume');
+      if (resumeBtn) resumeBtn.style.display = '';
+    }
+  } catch (e) {
+    // Ignore — server may not be ready
+  }
 }
 
 // -- Job detail modal -------------------------------------------------------
@@ -505,8 +593,47 @@ async function loadStats() {
         badge.className = 'badge badge-dim';
       }
     }
+
+    // Dynamic filter refresh
+    updateFilterDropdowns(s);
   } catch (e) {
     // Ignore stat loading errors
+  }
+}
+
+function updateFilterDropdowns(stats) {
+  _refreshSelect('filter-site', stats.sites_list || []);
+  _refreshSelect('filter-country', stats.country_codes || []);
+  _refreshSelect('filter-company-tag', stats.company_tags || []);
+}
+
+function _refreshSelect(id, options) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+
+  const current = sel.value;
+  // Keep the first "All" option, rebuild the rest
+  const allOption = sel.querySelector('option[value=""]');
+  sel.innerHTML = '';
+  if (allOption) {
+    sel.appendChild(allOption);
+  } else {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'All';
+    sel.appendChild(opt);
+  }
+
+  for (const val of options) {
+    const opt = document.createElement('option');
+    opt.value = val;
+    opt.textContent = val;
+    sel.appendChild(opt);
+  }
+
+  // Restore previous selection if still valid
+  if (current && options.includes(current)) {
+    sel.value = current;
   }
 }
 
@@ -651,22 +778,32 @@ function connectSSE() {
     }
   });
 
+  es.addEventListener('scan_progress', (e) => {
+    const data = JSON.parse(e.data);
+    if (data.status === 'running' || data.status === 'stopping') {
+      setScanUI(data.status);
+      updateProgressBar(data);
+    } else if (data.status === 'stopped') {
+      setScanUI('stopped');
+    } else if (data.status === 'done') {
+      setScanUI('idle');
+      loadJobs();
+      loadStats();
+    } else if (data.status === 'error') {
+      setScanUI('error');
+    }
+  });
+
   es.addEventListener('discover_status', (e) => {
     const data = JSON.parse(e.data);
-    const btn = document.getElementById('btn-discover');
-    if (btn) {
-      if (data.status === 'done') {
-        btn.textContent = 'Scan Now';
-        btn.disabled = false;
-        // Full refresh to get proper sort/pagination
-        loadJobs();
-        loadStats();
-      } else if (data.status === 'error') {
-        btn.textContent = 'Scan Now';
-        btn.disabled = false;
-      } else {
-        btn.textContent = data.status + '...';
-      }
+    if (data.status === 'done') {
+      setScanUI('idle');
+      loadJobs();
+      loadStats();
+    } else if (data.status === 'error') {
+      setScanUI('error');
+    } else if (data.status === 'stopped') {
+      setScanUI('stopped');
     }
   });
 
@@ -715,6 +852,9 @@ function debounceSearch() {
 // -- Init -------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Restore scan state on page load (before anything else)
+  restoreScanState();
+
   // Only load jobs if on the job browser page
   if (document.getElementById('job-grid')) {
     loadJobs();

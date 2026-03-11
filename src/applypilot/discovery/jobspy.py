@@ -366,8 +366,13 @@ def _full_crawl(
     hours_old: int = 72,
     proxy: str | None = None,
     max_retries: int = 2,
+    stop_event: "threading.Event | None" = None,
+    progress_callback: "callable | None" = None,
+    skip_indices: "set | None" = None,
 ) -> dict:
     """Run all search queries from search config across all locations."""
+    import threading as _threading
+
     if sites is None:
         sites = ["indeed", "linkedin", "zip_recruiter"]
 
@@ -406,8 +411,19 @@ def _full_crawl(
     total_existing = 0
     total_errors = 0
     completed = 0
+    completed_indices: list[int] = []
 
-    for s in searches:
+    for i, s in enumerate(searches):
+        # Check stop event
+        if stop_event and stop_event.is_set():
+            log.info("JobSpy crawl: stop requested at %d/%d", completed, len(searches))
+            break
+
+        # Skip already-completed indices (for resume)
+        if skip_indices and i in skip_indices:
+            completed += 1
+            continue
+
         result = _run_one_search(
             s, sites, results_per_site, hours_old,
             proxy_config, defaults, max_retries,
@@ -417,6 +433,10 @@ def _full_crawl(
         total_new += result["new"]
         total_existing += result["existing"]
         total_errors += result["errors"]
+        completed_indices.append(i)
+
+        if progress_callback:
+            progress_callback(completed, len(searches), result.get("label", ""))
 
         if completed % 5 == 0 or completed == len(searches):
             log.info("Progress: %d/%d queries done (%d new, %d dupes, %d errors)",
@@ -435,30 +455,35 @@ def _full_crawl(
         "errors": total_errors,
         "db_total": db_total,
         "queries": len(searches),
+        "completed_indices": completed_indices,
     }
 
 
 # -- Public entry point ------------------------------------------------------
 
-def run_discovery(cfg: dict | None = None) -> dict:
+def run_discovery(
+    cfg: dict | None = None,
+    stop_event: "threading.Event | None" = None,
+    progress_callback: "callable | None" = None,
+    skip_indices: "set | None" = None,
+) -> dict:
     """Main entry point for JobSpy-based job discovery.
 
-    Loads search queries and locations from the user's search config YAML,
-    then runs a full crawl across all configured job boards.
-
     Args:
-        cfg: Override the search configuration dict. If None, loads from
-             the user's searches.yaml file.
+        cfg: Override the search configuration dict.
+        stop_event: If set, stop gracefully between search combos.
+        progress_callback: Called with (current, total, label) after each combo.
+        skip_indices: Set of search combo indices to skip (for resume).
 
     Returns:
-        Dict with stats: new, existing, errors, db_total, queries.
+        Dict with stats: new, existing, errors, db_total, queries, completed_indices.
     """
     if cfg is None:
         cfg = config.load_search_config()
 
     if not cfg:
         log.warning("No search configuration found. Run `applypilot init` to create one.")
-        return {"new": 0, "existing": 0, "errors": 0, "db_total": 0, "queries": 0}
+        return {"new": 0, "existing": 0, "errors": 0, "db_total": 0, "queries": 0, "completed_indices": []}
 
     proxy = cfg.get("proxy")
     sites = cfg.get("sites")
@@ -475,4 +500,7 @@ def run_discovery(cfg: dict | None = None) -> dict:
         results_per_site=results_per_site,
         hours_old=hours_old,
         proxy=proxy,
+        stop_event=stop_event,
+        progress_callback=progress_callback,
+        skip_indices=skip_indices,
     )
