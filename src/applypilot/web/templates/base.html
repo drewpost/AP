@@ -19,11 +19,22 @@
     <div class="top-actions">
       <span id="worker-badge" class="badge badge-dim">Worker: idle</span>
       <button id="btn-discover" class="btn btn-sm" onclick="triggerDiscover()">Scan Now</button>
+      <button id="btn-log-toggle" class="btn btn-sm btn-log-toggle" onclick="toggleLogPanel()">Log</button>
     </div>
   </header>
   <main>
     {% block content %}{% endblock %}
   </main>
+  <div id="log-panel" class="log-panel">
+    <div class="log-header">
+      <span class="log-title">Scan Log</span>
+      <div class="log-actions">
+        <button class="btn btn-sm" onclick="clearLogPanel()">Clear</button>
+        <button class="btn btn-sm" onclick="toggleLogPanel()">&times;</button>
+      </div>
+    </div>
+    <div id="log-output" class="log-output"></div>
+  </div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>

@@ -1,12 +1,13 @@
 """JSON API endpoints for the ApplyPilot web UI."""
 
+import logging
 import threading
 from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request, Response
 
 from applypilot.database import get_connection, get_stats
-from applypilot.web.sse import bus
+from applypilot.web.sse import bus, SSELogHandler
 from applypilot.web import worker as pipeline_worker
 
 api = Blueprint("api", __name__, url_prefix="/api")
@@ -278,6 +279,22 @@ def pipeline_status():
 def trigger_discover():
     """Trigger discover+enrich+score in background."""
     def _run_discovery():
+        from applypilot.database import _on_jobs_stored
+
+        # Callback: publish SSE when new jobs are stored
+        def _on_stored(new, existing, site, summary):
+            bus.publish("jobs_discovered", {
+                "new": new,
+                "existing": existing,
+                "site": site,
+            })
+
+        # Attach callback and log handler
+        _on_jobs_stored.append(_on_stored)
+        log_handler = SSELogHandler(bus)
+        root_logger = logging.getLogger("applypilot")
+        root_logger.addHandler(log_handler)
+
         try:
             from applypilot.config import load_env, ensure_dirs
             from applypilot.database import init_db
@@ -297,10 +314,49 @@ def trigger_discover():
             bus.publish("discover_status", {"status": "done"})
         except Exception as e:
             bus.publish("discover_status", {"status": "error", "error": str(e)})
+        finally:
+            # Clean up callback and log handler
+            try:
+                _on_jobs_stored.remove(_on_stored)
+            except ValueError:
+                pass
+            root_logger.removeHandler(log_handler)
 
     t = threading.Thread(target=_run_discovery, name="discover-bg", daemon=True)
     t.start()
     return jsonify({"status": "started"})
+
+
+@api.route("/jobs/recent")
+def recent_jobs():
+    """Fetch recently discovered jobs, optionally after a timestamp."""
+    conn = get_connection()
+    limit = request.args.get("limit", 20, type=int)
+    limit = min(limit, 100)
+    after = request.args.get("after")
+
+    if after:
+        rows = conn.execute(
+            "SELECT url, title, company, salary, salary_min, salary_max, salary_currency, "
+            "salary_period, location, site, remote_type, country_code, brief_description, "
+            "fit_score, score_reasoning, application_url, ui_selected, pipeline_status, "
+            "user_status, user_viewed_at, first_seen_at, company_tag, discovered_at "
+            "FROM jobs WHERE discovered_at > ? "
+            "ORDER BY discovered_at DESC LIMIT ?",
+            (after, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT url, title, company, salary, salary_min, salary_max, salary_currency, "
+            "salary_period, location, site, remote_type, country_code, brief_description, "
+            "fit_score, score_reasoning, application_url, ui_selected, pipeline_status, "
+            "user_status, user_viewed_at, first_seen_at, company_tag, discovered_at "
+            "FROM jobs ORDER BY discovered_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    jobs = [dict(zip(r.keys(), r)) for r in rows]
+    return jsonify({"jobs": jobs})
 
 
 # -- User status & notes endpoints ------------------------------------------

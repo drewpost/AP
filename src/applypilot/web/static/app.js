@@ -4,6 +4,13 @@ let currentPage = 1;
 let selectedUrls = new Set();
 let searchTimeout = null;
 
+// -- Streaming state --------------------------------------------------------
+let _streamDebounce = null;
+let _lastDiscoveredAt = null;
+let _knownUrls = new Set();
+let _logManualClose = false;
+const LOG_MAX_LINES = 500;
+
 // -- Job loading & rendering ------------------------------------------------
 
 function getFilters() {
@@ -260,6 +267,18 @@ async function triggerDiscover() {
   btn.textContent = 'Scanning...';
   btn.disabled = true;
 
+  // Reset streaming state
+  _lastDiscoveredAt = new Date().toISOString();
+  _knownUrls = new Set();
+  document.querySelectorAll('.job-card').forEach(c => _knownUrls.add(c.dataset.url));
+  _logManualClose = false;
+
+  // Auto-open log panel
+  const panel = document.getElementById('log-panel');
+  if (panel && !panel.classList.contains('open')) {
+    panel.classList.add('open');
+  }
+
   await fetch('/api/discover', {method: 'POST'});
   // Will get updates via SSE
 }
@@ -491,6 +510,97 @@ async function loadStats() {
   }
 }
 
+// -- Streaming: prepend new jobs in real time --------------------------------
+
+function scheduleStreamRefresh() {
+  clearTimeout(_streamDebounce);
+  _streamDebounce = setTimeout(fetchAndPrependNew, 500);
+}
+
+async function fetchAndPrependNew() {
+  const grid = document.getElementById('job-grid');
+  if (!grid) return;
+
+  try {
+    const params = new URLSearchParams({limit: '30'});
+    if (_lastDiscoveredAt) params.set('after', _lastDiscoveredAt);
+    const resp = await fetch('/api/jobs/recent?' + params);
+    const data = await resp.json();
+    prependNewJobs(data.jobs);
+  } catch (e) {
+    // Ignore fetch errors during streaming
+  }
+}
+
+function prependNewJobs(jobs) {
+  const grid = document.getElementById('job-grid');
+  if (!grid) return;
+
+  const fragment = document.createDocumentFragment();
+  let added = 0;
+
+  for (const j of jobs) {
+    if (_knownUrls.has(j.url)) continue;
+    _knownUrls.add(j.url);
+
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderJobCard(j);
+    const card = tmp.firstElementChild;
+    card.classList.add('card-new');
+    fragment.appendChild(card);
+    added++;
+  }
+
+  if (added > 0) {
+    grid.prepend(fragment);
+    // Update discovered_at watermark
+    if (jobs.length > 0 && jobs[0].discovered_at) {
+      _lastDiscoveredAt = jobs[0].discovered_at;
+    }
+    // Update stats incrementally
+    loadStats();
+  }
+}
+
+// -- Log panel controls -----------------------------------------------------
+
+function toggleLogPanel() {
+  const panel = document.getElementById('log-panel');
+  if (!panel) return;
+  const wasOpen = panel.classList.contains('open');
+  panel.classList.toggle('open');
+  if (wasOpen) _logManualClose = true;
+}
+
+function clearLogPanel() {
+  const output = document.getElementById('log-output');
+  if (output) output.innerHTML = '';
+}
+
+function appendLogLine(data) {
+  const output = document.getElementById('log-output');
+  if (!output) return;
+
+  const line = document.createElement('div');
+  line.className = 'log-line log-level-' + (data.level || 'info');
+
+  const ts = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '';
+  line.innerHTML =
+    `<span class="log-ts">${esc(ts)}</span>` +
+    `<span class="log-source">${esc(data.logger || '')}</span>` +
+    `<span class="log-msg">${esc(data.message || '')}</span>`;
+
+  output.appendChild(line);
+
+  // Cap lines
+  while (output.children.length > LOG_MAX_LINES) {
+    output.removeChild(output.firstChild);
+  }
+
+  // Auto-scroll
+  output.scrollTop = output.scrollHeight;
+}
+
 // -- SSE real-time updates --------------------------------------------------
 
 function connectSSE() {
@@ -548,6 +658,7 @@ function connectSSE() {
       if (data.status === 'done') {
         btn.textContent = 'Scan Now';
         btn.disabled = false;
+        // Full refresh to get proper sort/pagination
         loadJobs();
         loadStats();
       } else if (data.status === 'error') {
@@ -555,6 +666,24 @@ function connectSSE() {
         btn.disabled = false;
       } else {
         btn.textContent = data.status + '...';
+      }
+    }
+  });
+
+  es.addEventListener('jobs_discovered', (e) => {
+    // Debounce: batch-fetch new jobs from API
+    scheduleStreamRefresh();
+  });
+
+  es.addEventListener('scan_log', (e) => {
+    const data = JSON.parse(e.data);
+    appendLogLine(data);
+
+    // Auto-open log panel on first log message (unless user manually closed)
+    if (!_logManualClose) {
+      const panel = document.getElementById('log-panel');
+      if (panel && !panel.classList.contains('open')) {
+        panel.classList.add('open');
       }
     }
   });

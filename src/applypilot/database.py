@@ -16,6 +16,10 @@ from applypilot.config import DB_PATH
 # (required for SQLite thread safety with parallel workers)
 _local = threading.local()
 
+# Callback hooks fired after store_jobs() commits new rows.
+# Each callback receives (new_count, existing_count, site, jobs_summary).
+_on_jobs_stored: list = []
+
 
 def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
     """Get a thread-local cached SQLite connection with WAL mode enabled.
@@ -425,6 +429,19 @@ def store_jobs(conn: sqlite3.Connection, jobs: list[dict],
             existing += 1
 
     conn.commit()
+
+    # Fire callbacks when new jobs were stored
+    if new > 0 and _on_jobs_stored:
+        summary = [
+            {"url": j.get("url"), "title": j.get("title"), "company": j.get("company_tag")}
+            for j in jobs if j.get("url")
+        ][:20]  # Cap summary size
+        for cb in _on_jobs_stored:
+            try:
+                cb(new, existing, site, summary)
+            except Exception:
+                pass
+
     return new, existing
 
 

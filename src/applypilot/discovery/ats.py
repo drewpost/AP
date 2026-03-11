@@ -238,6 +238,8 @@ def _scrape_company(key: str, info: dict) -> list[dict]:
     name = info.get("name", key)
     category = info.get("category", "")
 
+    log.info("Scraping %s (%s)...", name, ats)
+
     if ats == "greenhouse":
         token = info.get("board_token", key)
         return greenhouse_jobs(token, name, category)

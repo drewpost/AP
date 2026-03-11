@@ -4,9 +4,11 @@ Thread-safe queue connecting background workers to the SSE endpoint.
 """
 
 import json
+import logging
 import queue
 import threading
 import time
+from datetime import datetime, timezone
 
 
 class SSEBus:
@@ -60,6 +62,37 @@ class SSEBus:
                     yield ": heartbeat\n\n"
         finally:
             self.unsubscribe(client_queue)
+
+
+class SSELogHandler(logging.Handler):
+    """Forward pipeline log messages to SSE scan_log events."""
+
+    _LOGGERS = (
+        "applypilot.discovery",
+        "applypilot.enrichment",
+        "applypilot.scoring",
+        "applypilot.pipeline",
+    )
+
+    def __init__(self, sse_bus: "SSEBus"):
+        super().__init__(level=logging.DEBUG)
+        self._bus = sse_bus
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return any(record.name.startswith(prefix) for prefix in self._LOGGERS)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            # Short source: "discovery.ats" from "applypilot.discovery.ats"
+            source = record.name.removeprefix("applypilot.")
+            self._bus.publish("scan_log", {
+                "message": record.getMessage(),
+                "level": record.levelname.lower(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "logger": source,
+            })
+        except Exception:
+            pass
 
 
 # Singleton bus instance
