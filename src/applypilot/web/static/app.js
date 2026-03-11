@@ -116,7 +116,7 @@ function renderJobCard(j) {
       <div class="card-footer">
         ${pipelineBadge}
         ${j.application_url ? `<a href="${esc(j.application_url)}" class="apply-link" target="_blank" onclick="event.stopPropagation()">Apply</a>` : ''}
-        <button class="btn-dismiss" onclick="dismissJob(event, '${esc(j.url)}')" title="Dismiss">&times;</button>
+        <button class="btn-dismiss" onclick="dismissJob(event, '${esc(j.url)}')" title="Not suitable — hide this job">Not suitable</button>
       </div>
     </div>`;
 }

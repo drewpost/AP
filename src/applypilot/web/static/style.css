@@ -158,18 +158,19 @@ main {
 }
 .btn-primary:hover { background: #1d4ed8; }
 
-/* Dismiss button */
+/* Dismiss / Not suitable button */
 .btn-dismiss {
   background: none;
-  border: 1px solid transparent;
+  border: 1px solid #334155;
   color: #64748b;
-  font-size: 1rem;
+  font-size: 0.68rem;
   cursor: pointer;
-  padding: 0.1rem 0.4rem;
+  padding: 0.2rem 0.5rem;
   border-radius: 4px;
   line-height: 1;
   margin-left: auto;
   transition: all 0.15s;
+  white-space: nowrap;
 }
 .btn-dismiss:hover {
   color: #fca5a5;
