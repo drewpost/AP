@@ -86,7 +86,6 @@ def _load_location_config(search_cfg: dict) -> tuple[list[str], list[str], list[
 
 # Countries/regions that make a "remote" job clearly not available in the UK.
 # Used as fallback if remote_reject is not configured in searches.yaml.
-from applypilot.discovery import DEFAULT_REMOTE_REJECT as _DEFAULT_REMOTE_REJECT
 from applypilot.discovery import location_ok as _location_ok
 
 

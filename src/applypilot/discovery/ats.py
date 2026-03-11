@@ -19,7 +19,7 @@ import yaml
 
 from applypilot import config
 from applypilot.database import get_connection, store_jobs
-from applypilot.discovery import DEFAULT_REMOTE_REJECT, location_ok as _location_ok_shared
+from applypilot.discovery import location_ok as _location_ok_shared
 
 log = logging.getLogger(__name__)
 

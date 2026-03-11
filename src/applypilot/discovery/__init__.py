@@ -1,50 +1,12 @@
 """Shared location filtering for all discovery modules."""
 
-import re
-
-# Countries, regions, US states, and cities that indicate a remote job
-# is NOT available in the UK.
-DEFAULT_REMOTE_REJECT = [
-    "usa", "united states", "u.s.", "america", "american",
-    "canada", "canadian",
-    "brazil", "brasil",
-    "mexico", "méxico",
-    "india", "indian",
-    "australia", "australian",
-    "new zealand",
-    "singapore", "singaporean",
-    "japan", "japanese",
-    "china", "chinese",
-    "korea", "korean",
-    "vietnam", "vietnamese",
-    "thailand", "thai",
-    "philippines", "filipino",
-    "indonesia", "indonesian",
-    "malaysia", "malaysian",
-    "taiwan",
-    "hong kong",
-    "colombia", "colombian",
-    "argentina", "chile", "peru",
-    "costa rica", "puerto rico",
-    "south africa",
-    "nigeria",
-    "egypt",
-    "israel",
-    # US states commonly seen in remote job locations
-    "california", "new york", "texas", "florida", "illinois",
-    "washington dc", "virginia", "georgia", "massachusetts",
-    "colorado", "arizona", "oregon", "pennsylvania", "ohio",
-    "michigan", "minnesota", "north carolina", "new jersey",
-    "connecticut", "maryland", "wisconsin", "missouri",
-    "tennessee", "alabama", "louisiana", "kentucky",
-    "boston", "san francisco", "seattle", "chicago", "denver",
-    "austin", "atlanta", "miami", "portland", "phoenix",
-    "los angeles", "dallas", "houston", "charlotte",
-    "raleigh", "nashville", "detroit", "minneapolis",
-    "toronto", "vancouver", "montreal", "ottawa",
-    "mumbai", "bangalore", "hyderabad", "delhi", "pune",
-    "são paulo", "bogotá", "buenos aires", "santiago",
-    "sydney", "melbourne", "auckland",
+# Patterns that indicate a remote job is available in the UK.
+# If a remote job mentions a specific country/region and NONE of these match,
+# it's rejected. Pure "Remote" with no qualifier is accepted.
+REMOTE_ACCEPT = [
+    "uk", "united kingdom", "britain", "england", "london", "surrey",
+    "emea", "europe", "eu", "eea",
+    "worldwide", "global", "anywhere", "international",
 ]
 
 
@@ -52,7 +14,10 @@ def location_ok(location: str | None, accept: list[str], reject: list[str],
                 remote_reject: list[str] | None = None) -> bool:
     """Check if a job location passes the user's location filter.
 
-    Remote jobs are accepted only if they don't specify a non-UK country.
+    Remote jobs: accepted only if they DON'T specify a non-UK country/region.
+    Uses an accept-list approach — if the remote location mentions a specific
+    place and it's not UK/EMEA/global, it's rejected.
+
     Non-remote jobs must match an accept pattern and not match a reject pattern.
     """
     if not location:
@@ -63,20 +28,31 @@ def location_ok(location: str | None, accept: list[str], reject: list[str],
     is_remote = any(r in loc for r in ("remote", "anywhere", "work from home", "wfh", "distributed"))
 
     if is_remote:
-        # Check for bare "US" / "UK-only exclusion" with word boundaries
-        # so we don't false-positive on "focus", "campus", etc.
-        if re.search(r'\bUS\b', location):  # case-sensitive: "US" but not "us" in "focus"
-            return False
-        reject_patterns = remote_reject if remote_reject else DEFAULT_REMOTE_REJECT
-        for pattern in reject_patterns:
-            if pattern.lower() in loc:
-                return False
-        return True
+        # Strip out the remote keywords to see what's left
+        remainder = loc
+        for r in ("remote", "anywhere", "work from home", "wfh", "distributed"):
+            remainder = remainder.replace(r, "")
+        # Strip punctuation and whitespace
+        remainder = remainder.strip(" -–—/,;:()")
 
+        # Pure "Remote" with no geo qualifier — accept
+        if not remainder:
+            return True
+
+        # Check if remainder mentions UK or broad region we can work in
+        for pattern in REMOTE_ACCEPT:
+            if pattern in remainder:
+                return True
+
+        # Has a geo qualifier that's not UK-compatible — reject
+        return False
+
+    # Non-remote: reject matches
     for r in reject:
         if r.lower() in loc:
             return False
 
+    # Non-remote: accept matches
     for a in accept:
         if a.lower() in loc:
             return True
